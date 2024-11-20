@@ -1,5 +1,5 @@
-import VerusLean.VerusAesopSetup
-import Mathlib.Tactic.Ring
+--import VerusLean.VerusAesopSetup
+--import Mathlib.Tactic.Ring
 
 abbrev vstd.math.add (x y : Int) := x + y
 abbrev vstd.math.sub (x y : Int) := x - y

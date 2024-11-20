@@ -11,4 +11,7 @@ lean_lib «VerusLean» where
 lean_exe «verus-lean» where
   root := `Main
 
-require mathlib from git "https://github.com/leanprover-community/mathlib4.git"@"master"
+lean_exe VerusParser where
+  root := `VerusLean.VLIRParser
+
+--require batteries from git "https://github.com/leanprover-community/batteries" @ "master"

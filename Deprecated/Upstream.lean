@@ -1,5 +1,6 @@
-import Batteries
+--import Batteries
 
+/-
 open Lean Elab Command
 
 namespace Lean.FromJson
@@ -39,4 +40,4 @@ namespace Lean.ToJson
         toJson i := toJson i.val.val
     )
 
-end Lean.ToJson
+end Lean.ToJson -/

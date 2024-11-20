@@ -1,4 +1,4 @@
-import Aesop
+/-import Aesop
 
 declare_aesop_rule_sets [VerusLean]
 
@@ -8,4 +8,4 @@ macro "verus_default_tac" : tactic =>
 macro "verus_attr" : attr => do
   `(attr|
     aesop unsafe 1% apply (rule_sets := [VerusLean])
-  )
+  ) -/
