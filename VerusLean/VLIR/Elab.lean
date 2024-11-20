@@ -71,8 +71,7 @@ def BinaryOp.toSyntax (b : BinaryOp) (lhs rhs : Term) : TermElabM Term := do
   | .Or => `($lhs ∨ $rhs)
   | .Xor => `($lhs ^^ $rhs)
   | .Implies => `($lhs → $rhs)
-  | .Eq _ => return Syntax.mkApp (mkIdent `Eq) #[lhs, rhs]
-  --return Syntax.mkApp (quoteNameMk `_root_.Eq) #[lhs, rhs] --`($lhs = $rhs)
+  | .Eq _ => `($lhs = $rhs)
   | .Ne => `($lhs ≠ $rhs)
   | .Inequality ineq => ineq.toSyntax lhs rhs
   | .Arith arith _ => arith.toSyntax lhs rhs

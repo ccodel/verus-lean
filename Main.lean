@@ -600,7 +600,7 @@ def synF3 := f3.1.toSyntax
 --#eval f2.2
 --#eval f3.2
 
-def preludeString := "import VerusLean.Basic\n\nnamespace VerusLean\n\n"
+def preludeString := "import VerusLean.Basic\n\nnamespace VerusLean\n"
 def postludeString := "end VerusLean"
 
 /-
@@ -626,12 +626,13 @@ def genFromDir (dirPath : String) : IO String := do
 unsafe def genFromDir' (dirPath : String) : IO String := do
   -- For each file in the directory
   let files ← System.FilePath.walkDir dirPath
+  let files := files.insertionSort (fun a b => a.toString < b.toString)
   let str ← files.foldlM (init := "") (fun str entry => do
     let res ← Decl.fromFile? entry.toString
     match res with
     | .ok d => do
       let fmt ← d.toFormat
-      return str ++ fmt
+      return str ++ fmt ++ "\n\n"
     | .error e => do
       dbg_trace e
       let str := str ++ s!"-- The JSON at {entry} failed to generate\n\n"

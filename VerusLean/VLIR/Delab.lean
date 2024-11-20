@@ -1,6 +1,7 @@
 import VerusLean.VLIR.Elab
 import Lean.PrettyPrinter
 import Lean.Elab.Command
+import Lean.Util.SearchPath
 
 namespace VerusLean
 
@@ -80,6 +81,7 @@ def ExpX.toTheoremString (e : ExpX) (name : String := "verus_thm") (decls : Stri
   "theorem " ++ name ++ " " ++ decls ++ ": " ++ ExpX.pp e ++ " := by sorry\n\n"
 
 unsafe def Decl.toFormat (d : Decl) : IO String := do
+  searchPathRef.set compile_time_search_path%
   let res : Except Exception Format ← Lean.withImportModules
     (imports := #[{ module := `Init : Import }])
     (opts := Options.empty)
