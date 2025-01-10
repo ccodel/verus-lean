@@ -100,7 +100,7 @@ def Const.fromJson? (j : Json) : VParser Const :=
       if h : arr.size < 2 then
         throw s!"[Const.fromJson?]: Expected an array of size at least 2, got {arr.size}"
       else
-        match arr.get ⟨0, by omega⟩, arr.get ⟨1, by omega⟩ with
+        match arr.get 0 (by omega), arr.get 1 (by omega) with
         | s, n =>
           match s.getNat? with
           | .error e => throw s!"[Const.fromJson?]: {e}"
@@ -152,8 +152,8 @@ def Bitwise.fromJson? (j : Json) : VParser BitwiseOp :=
         if h : arr.size < 2 then
           throw s!"[Bitwise.fromJson?]: Expected an array of size at least 2, got {arr.size}"
         else
-          let widthObj := arr.get ⟨0, by omega⟩
-          let signExtend := arr.get ⟨1, by omega⟩
+          let widthObj := arr.get 0 (by omega)
+          let signExtend := arr.get 1 (by omega)
           let width ← widthFromJson? widthObj
           match signExtend.getBool? with
           | .ok signExtend => .ok (BitwiseOp.Shl width signExtend)
@@ -216,8 +216,8 @@ def BinaryOp.fromJson? (j : Json) : VParser BinaryOp :=
         if h : arr.size < 2 then
           throw s!"[BinaryOp.fromJson?]: Expected an array of size at least 2, got {arr.size}"
         else
-          let op := arr.get ⟨0, by omega⟩
-          let mode := arr.get ⟨1, by omega⟩
+          let op := arr.get 0 (by omega)
+          let mode := arr.get 1 (by omega)
           let op ← Bitwise.fromJson? op
           let mode ← Mode.fromJson? mode
           return BinaryOp.Bitwise op mode
@@ -229,8 +229,8 @@ def BinaryOp.fromJson? (j : Json) : VParser BinaryOp :=
         if h : arr.size < 2 then
           throw s!"[BinaryOp.fromJson?]: Expected an array of size at least 2, got {arr.size}"
         else
-          let op := arr.get ⟨0, by omega⟩
-          let mode := arr.get ⟨1, by omega⟩
+          let op := arr.get 0 (by omega)
+          let mode := arr.get 1 (by omega)
           let op ← ArithOp.fromJson? op
           let mode ← Mode.fromJson? mode
           return BinaryOp.Arith op mode
@@ -262,8 +262,8 @@ partial def ExpX.fromJson? (j : Json) : VParser ExpX :=
       if h : arr.size < 2 then
         throw s!"[ExpX.fromJson?]: Expected an array of size at least 2, got {arr.size}"
       else
-        let op := arr.get ⟨0, by omega⟩
-        let data := arr.get ⟨1, by omega⟩
+        let op := arr.get 0 (by omega)
+        let data := arr.get 1 (by omega)
         let op ← UnaryOp.fromJson? op
         let data ← fromJsonSpanned? data ExpX.fromJson?
         return ExpX.Unary op data
@@ -275,9 +275,9 @@ partial def ExpX.fromJson? (j : Json) : VParser ExpX :=
       if h : arr.size < 3 then
         throw s!"[ExpX.fromJson?]: Expected an array of size at least 3, got {arr.size}"
       else
-        let op := arr.get ⟨0, by omega⟩
-        let data₁ := arr.get ⟨1, by omega⟩
-        let data₂ := arr.get ⟨2, by omega⟩
+        let op := arr.get 0 (by omega)
+        let data₁ := arr.get 1 (by omega)
+        let data₂ := arr.get 2 (by omega)
         let op ← BinaryOp.fromJson? op
         let data₁ ← fromJsonSpanned? data₁ ExpX.fromJson?
         let data₂ ← fromJsonSpanned? data₂ ExpX.fromJson?
@@ -290,9 +290,9 @@ partial def ExpX.fromJson? (j : Json) : VParser ExpX :=
       if h : arr.size < 3 then
         throw s!"[ExpX.fromJson?]: Expected an array of size at least 3, got {arr.size}"
       else
-        let cond := arr.get ⟨0, by omega⟩
-        let branch₁ := arr.get ⟨1, by omega⟩
-        let branch₂ := arr.get ⟨2, by omega⟩
+        let cond := arr.get 0 (by omega)
+        let branch₁ := arr.get 1 (by omega)
+        let branch₂ := arr.get 2 (by omega)
         let cond ← fromJsonSpanned? cond ExpX.fromJson?
         let branch₁ ← fromJsonSpanned? branch₁ ExpX.fromJson?
         let branch₂ ← fromJsonSpanned? branch₂ ExpX.fromJson?
