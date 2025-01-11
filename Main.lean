@@ -634,7 +634,7 @@ unsafe def genFromDir' (dirPath : String) : IO String := do
       let fmt ← d.toFormat
       return str ++ fmt ++ "\n\n"
     | .error e => do
-      dbg_trace e
+      -- dbg_trace e
       let str := str ++ s!"-- The JSON at {entry} failed to generate\n\n"
       return str
   )
