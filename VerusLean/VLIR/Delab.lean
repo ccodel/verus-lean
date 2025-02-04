@@ -60,7 +60,12 @@ def BinaryOp.pp (op : BinaryOp) : String :=
   | .Arith arith _ => ArithOp.pp arith
   | .Bitwise bitwise _ => BitwiseOp.pp bitwise
 
-def ExpX.pp (e : ExpX) : String :=
+def Bind.pp (b : Bind) : String :=
+  match b with
+  | Quant Quant.Forall _ => "∀"
+  | Quant Quant.Exists _ => "∃"
+
+partial def ExpX.pp (e : ExpX) : String :=
   match e with
   | .Const c => Const.pp c
   | .Var ident => ident
@@ -76,6 +81,13 @@ def ExpX.pp (e : ExpX) : String :=
     let b₁ := ExpX.pp b₁
     let b₂ := ExpX.pp b₂
     "if (" ++ cond ++ ") then (" ++ b₁ ++ ") else (" ++ b₂ ++ ")"
+  -- | .ArrayLiteral es =>
+  --   let es := es.map ExpX.pp
+  --   "#[" ++ String.intercalate ", " es.toList ++ "]"
+  | .Bind bnd exp =>
+    let bnd := Bind.pp bnd
+    let exp := ExpX.pp exp
+    bnd ++ ", " ++ exp
 
 def ExpX.toTheoremString (e : ExpX) (name : String := "verus_thm") (decls : String := "") : String :=
   "theorem " ++ name ++ " " ++ decls ++ ": " ++ ExpX.pp e ++ " := by sorry\n\n"

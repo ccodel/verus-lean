@@ -29,7 +29,7 @@ theorem cmp_eq_iff {s₁ s₂ : String} : s₁.cmp s₂ = .eq ↔ s₁ = s₂ :=
   <;> rename_i h
   · simp
     rintro rfl
-    sorry -- ??
+    simp at h
   · split
     <;> (simp; assumption)
 

@@ -1,6 +1,7 @@
 import VerusLean.Json
 import VerusLean.VLIR.Defs
 import VerusLean.Basic.Monad
+import Lean
 
 namespace VerusLean
 
@@ -22,16 +23,31 @@ abbrev VMap := Std.HashMap String Typ
 abbrev VParser := EStateM String (Typ × VMap)
 
 def Typ.fromJson? (j : Json) : VParser Typ :=
+  -- dbg_trace s!"[Typ.fromJson?]: {j}"
   match j.getStr? with
   | .ok "Bool" => .ok Typ.Bool
   | .ok _ => throw "unsupported primitive type"
   | .error _ =>
-    match j.getFirstVal? ["Int"] with
-    | .error e => throw s!"[Typ.fromJson?]: {e}"
+    match j.getFirstVal? ["Int", "Primitive", "ConstInt", "Array"] with
+    | .error e => throw s!"[Typ.fromJson? 1]: {e}, json is {j}"
+    | .ok ("Primitive", obj) =>
+      match obj.getArr? with
+      | .ok t => match t.get? 0 with
+        | some "Array" => throw "unsupported primitive type Array"
+        -- .ok (Typ.Array Typ.Int)
+        | some _ => throw "unsupported primitive type"
+        | none => throw s!"error, json: {obj}"
+        -- match Typ.fromJson? t with
+          -- | .ok Typ.Bool => .ok Typ.Bool
+          -- | .error e => throw s!"[Typ.fromJson? 3]: {e}"
+      | .error e => throw s!"{e}, json: {obj}"
+    -- | .ok ("Array", obj) => throw "Array ... not yet implemented"
+    -- | .ok ("ConstInt", obj) => throw "ConstInt not yet implemented"
     | .ok ("Int", obj) =>
       -- First, we check if the the underlying string is "Int" for mathematical integers
       match obj.getStr? with
       | .ok "Int" => .ok Typ.Int
+      | .ok "Nat" => .ok Typ.Nat
       | .ok _ => throw s!"unsupported Int object string: {obj}"
       | .error _ =>
         -- Now check if it is a fixed-width integer
@@ -90,7 +106,6 @@ def Const.fromJson? (j : Json) : VParser Const :=
     match v.getBool? with
     | .ok b => .ok (Const.Bool b)
     | .error e => throw s!"[Const.fromJson?]: {e}"
-
   | .ok ("Int", v) =>
     -- Ints are serialized as an array, with the first element the sign enum
     -- and the second value is the data, an array of u64s.
@@ -104,7 +119,7 @@ def Const.fromJson? (j : Json) : VParser Const :=
         | s, n =>
           match s.getNat? with
           | .error e => throw s!"[Const.fromJson?]: {e}"
-          | .ok 0 => -- no sign
+          | .ok 0 => -- no sign -- CZ: according to bigint.rs, 0 is minus, 1 is no sign, 2 is plus?
             .ok (Const.Int 0)
           | .ok 1 => -- positive number
             match n.getArr? with
@@ -181,6 +196,7 @@ def InequalityOp.fromJson? (j : Json) : VParser InequalityOp :=
   | .error e => throw s!"[InequalityOp.fromJson?]: {e}"
 
 def UnaryOp.fromJson? (j : Json) : VParser UnaryOp :=
+  -- dbg_trace s!"[UnaryOp.fromJson?]: {j}"
   match j.getStr? with
   | .ok "Not" => .ok UnaryOp.Not
   | .ok "BitNot" => throw "not yet implemented"
@@ -189,10 +205,20 @@ def UnaryOp.fromJson? (j : Json) : VParser UnaryOp :=
   | .error _ =>
     -- Try seeing if "BitNot" has a width
     match j.getObjVal? "BitNot" with
-    | .error e => throw s!"[UnaryOp.fromJson?]: {e}"
     | .ok obj => do
       let width ← widthFromJson? obj
       return UnaryOp.BitNot width
+    | .error e =>
+      -- throw s!"[UnaryOp.fromJson?]: {e}"
+      -- Try seeing if it's a trigger
+      match j.getObjVal? "Trigger" with
+      | .error e => throw s!"[UnaryOp.fromJson?]: {e}"
+      | .ok obj => .ok UnaryOp.Trigger
+        -- match j.getArrVal? 1 with
+        -- | .error e => throw s!"expected an array of size 2: {e}, with json {j}"
+        -- | .ok obj => do
+        --   let obj ← fromJsonSpanned? obj ExpX.fromJson?
+        --   return UnaryOp.Trigger obj
 
 def BinaryOp.fromJson? (j : Json) : VParser BinaryOp :=
   -- Most are single strings, but Eq has a mode attached, etc.
@@ -236,9 +262,69 @@ def BinaryOp.fromJson? (j : Json) : VParser BinaryOp :=
           return BinaryOp.Arith op mode
     | _ => throw s!"[BinaryOp.fromJson?]: Expected one of \{ And, Or, Xor, Implies, Eq }, got something else: {j}"
 
+def Quant.fromJson? (j : Json) : VParser Quant :=
+  match j.getObjVal? "quant" with
+  | .ok "Forall" => .ok Quant.Forall
+  | .ok "Exists" => .ok Quant.Exists
+  | .ok s => throw s!"[Quant.fromJson?]: Expected one of \{ Forall, Exists }, got {s}"
+  | .error e => throw s!"[Quant.fromJson?]: {e}, with json {j}"
+
+def varBinderFromJson? (j : Json) : VParser (String × Typ) :=
+  match j.getObjVal? "name" with
+  | .error e => throw s!"[varBinderFromJson?]: no name found: {e}"
+  | .ok obj => do
+    match obj.getArr? with
+    | .error e => throw s!"[varBinderFromJson?]: {e}"
+    | .ok arr => do
+      if h : arr.size < 1 then
+        throw s!"[varBinderFromJson?]: Expected an array of size at least 1, got {arr.size}"
+      else
+        let name := arr.get 0 (by omega)
+        match name.getStr? with
+        | .ok name =>
+          match j.getObjVal? "a" with
+          | .error e => throw s!"[varBinderFromJson?]: no type found: {e}"
+          | .ok typ => do
+            -- dbg_trace s!"[varBinderFromJson?]: name={name}, typ={typ}"
+            let typ ← Typ.fromJson? typ
+            return (name, typ)
+          -- throw s!"[varBinderFromJson?]: {name} not yet implemented"
+          -- let typ ← Typ.fromJson? typ
+          -- return (name, typ)
+        | .error e => throw s!"[varBinderFromJson?]: {e}"
+
+def VarBinders.fromJson? (j : Json) : VParser VarBinders :=
+  match j.getArr? with
+  | .error e => throw s!"[VarBinders.fromJson?]: {e}"
+  | .ok arr => arr.toList.mapM varBinderFromJson?
+
+def Bind.fromJson? (j : Json) : VParser Bind :=
+  match j.getObjVal? "span" with
+  | .error e => throw s!"[Bind.fromJson?]: no span found: {e}"
+  | .ok _ =>
+    match j.getObjVal? "x" with
+    | .error e => throw s!"[Bind.fromJson?]: no x found: {e}"
+    | .ok obj =>
+      match obj.getObjVal? "Quant" with
+      | .error e => throw s!"[Bind.fromJson?]: {e}"
+      | .ok arr =>
+        match arr.getArr? with
+        | .error e => throw s!"[Bind.fromJson?]: {e}"
+        | .ok arr => do
+          if h : arr.size < 4 then
+            throw s!"[Bind.fromJson?]: Expected an array of size at least 4, got {arr.size}"
+          else
+            let q := arr.get 0 (by omega)
+            let binders := arr.get 1 (by omega)
+            -- let trigs := arr.get 2 (by omega)
+            -- let AssertByLocals := arr.get 3 (by omega)
+            let q ← Quant.fromJson? q
+            let binders ← VarBinders.fromJson? binders
+            return Bind.Quant q binders
+
 partial def ExpX.fromJson? (j : Json) : VParser ExpX :=
   -- Expect that exactly one of the enumerated options will be true
-  match j.getFirstVal? ["Const", "Var", "Unary", "Binary", "If"] with
+  match j.getFirstVal? ["Const", "Var", "Unary", "Binary", "If", "Array", "Bind"] with
   | .ok ("Const", obj) => do
     let c ← Const.fromJson? obj
     return ExpX.Const c
@@ -297,6 +383,27 @@ partial def ExpX.fromJson? (j : Json) : VParser ExpX :=
         let branch₁ ← fromJsonSpanned? branch₁ ExpX.fromJson?
         let branch₂ ← fromJsonSpanned? branch₂ ExpX.fromJson?
         return ExpX.If cond branch₁ branch₂
+  -- | .ok ("Array", obj) =>
+  --   -- Should be an array of expressions
+  --   match obj.getArr? with
+  --   | .error e => throw s!"[ExpX.fromJson?]: {e}"
+  --   | .ok arr => do
+  --     let elems ← arr.mapM (fun i => fromJsonSpanned? i ExpX.fromJson?)
+  --     return ExpX.ArrayLiteral elems
+  | .ok ("Bind", obj) =>
+    -- Should be an array with a bind and an expression
+    match obj.getArr? with
+    | .error e => throw s!"[ExpX.fromJson?]: {e}"
+    | .ok arr => do
+      if h : arr.size < 2 then
+        throw s!"[ExpX.fromJson?]: Expected an array of size at least 2, got {arr.size}"
+      else
+        let bind := arr.get 0 (by omega)
+        let exp := arr.get 1 (by omega)
+        -- throw s!"bind: {bind}, exp: {exp}"
+        let bind ← Bind.fromJson? bind
+        let exp ← fromJsonSpanned? exp ExpX.fromJson?
+        return ExpX.Bind bind exp
   | .ok _ => throw "[ExpX.fromJson?]: Expected one of { Const, Var, Unary, Binary, If }, got something else"
   | .error e => throw s!"[ExpX.fromJson?]: {e}"
 

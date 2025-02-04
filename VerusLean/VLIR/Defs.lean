@@ -79,6 +79,8 @@ inductive Typ where
   | SInt (width : Nat)    /- Signed fixed-width integers      -/
   | Char
   | StrSlice
+  -- | ConstInt (i : Int)    /- Const integer type argument      -/
+  | Array (t : Typ)       /- Array, ignore length in Rust     -/
 deriving Repr, Inhabited
 
 /-- Constant value literals -/
@@ -139,6 +141,7 @@ inductive UnaryOp where
   InferSpecForLoopIter { print_hint: Bool }, // loops?
   CastToInteger, // coercion after casting to an integer (type argument?)
   -/
+  | Trigger
 deriving Repr, Inhabited
 
 /--
@@ -173,6 +176,21 @@ inductive BinaryOp
   -- | StrGetChar
 deriving Repr, Inhabited, DecidableEq
 
+inductive Quant where
+  | Forall
+  | Exists
+deriving Repr, Inhabited, DecidableEq
+
+def VarBinders := List (Ident × Typ)
+deriving Repr, Inhabited
+
+inductive Bind where
+  -- | Let ()
+  | Quant (q : Quant) (vars : VarBinders)
+  -- | Lambda ()
+  -- | Choose ()
+deriving Repr, Inhabited
+
 /--
   Flattened Verus expressions.
 
@@ -190,6 +208,8 @@ inductive ExpX where
   | Binary (op : BinaryOp) (arg₁ arg₂ : ExpX)
   -- | BinaryOpr (op : BinaryOp) (arg₁ arg₂ : ExpX)
   | If (cond branch₁ branch₂ : ExpX)
+  -- | ArrayLiteral (elems : Array ExpX)
+  | Bind (bind : Bind) (exp : ExpX)
 deriving Repr, Inhabited
 
 abbrev Exps := Array ExpX

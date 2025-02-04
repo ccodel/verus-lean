@@ -20,6 +20,10 @@ def Typ.toSyntax (ty : Typ) : TermElabM Term := do
   | .SInt _ => `(BitVec 32)
   | .Char => return mkIdent ``_root_.Char
   | .StrSlice => throwError "StrSlice not supported"
+  -- | .ConstInt _ => return mkIdent ``_root_.Int
+  | .Array t => do
+    let t ← t.toSyntax
+    `(Array $t)
 
 def Const.toSyntax (c : Const) : TermElabM Term := do
   match c with
@@ -59,8 +63,9 @@ def InequalityOp.toSyntax (i : InequalityOp) (lhs rhs : Term) : TermElabM Term :
 
 def UnaryOp.toSyntax (u : UnaryOp) (e : Term) : TermElabM Term := do
   match u with
-  | .Not => `(! $e)
+  | .Not => `(! ($e))
   | .BitNot _ => `(~~~ $e)
+  | .Trigger => `($e)
   | _ => throwError "unsupported unary op {repr u}"
 
 #check Eq
@@ -77,7 +82,7 @@ def BinaryOp.toSyntax (b : BinaryOp) (lhs rhs : Term) : TermElabM Term := do
   | .Arith arith _ => arith.toSyntax lhs rhs
   | .Bitwise bitwise _ => bitwise.toSyntax lhs rhs
 
-def ExpX.toSyntax (e : ExpX) : TermElabM Term := do
+partial def ExpX.toSyntax (e : ExpX) : TermElabM Term := do
   match e with
   | .Const c => c.toSyntax
   | .Var ident => return ident.toSyntax
@@ -93,6 +98,24 @@ def ExpX.toSyntax (e : ExpX) : TermElabM Term := do
     let b₁ ← b₁.toSyntax
     let b₂ ← b₂.toSyntax
     `(if $cond then $b₁ else $b₂)
+  -- | .ArrayLiteral es =>
+  --   let es ← es.mapM ExpX.toSyntax
+  --   `(#[ $es,* ])
+  | .Bind (Bind.Quant q vars) e =>
+    -- let vs := vars.map Prod.fst
+    -- let ts := vars.map Prod.snd
+    let vars : TSyntaxArray ``Lean.Parser.Term.bracketedBinder ←
+      (
+        vars.toArray.mapM (fun (i, ty) => do
+          let i := i.toSyntax
+          let ty ← ty.toSyntax
+          `(Lean.Parser.Term.bracketedBinderF| ($i : $ty))
+        )
+      )
+    let e ← e.toSyntax
+    match q with
+    | Quant.Forall => `(∀ $(vars):bracketedBinder*, $e)
+    | Quant.Exists => `(∀ $(vars):bracketedBinder*, $e)
 
 def Exps.toSyntax (e : Exps) : TermElabM (Array Term) := do
   e.mapM ExpX.toSyntax
