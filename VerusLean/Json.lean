@@ -27,4 +27,15 @@ def getFirstVal? (j : Json) (l : List String) : Except String (String × Json) :
   else
     throw "object expected"
 
+def getObjValByPath (j : Json) (path : List String) : Except String Json :=
+  match path with
+  | [] => throw "empty path"
+  | k :: ks =>
+    match ks with
+    | [] => j.getObjVal? k
+    | _  =>
+      match j.getObjVal? k with
+      | .ok v => getObjValByPath v ks
+      | .error _ => throw "property not found"
+
 end Lean.Json

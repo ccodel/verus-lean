@@ -628,11 +628,16 @@ unsafe def genFromDir' (dirPath : String) : IO String := do
   let files ← System.FilePath.walkDir dirPath
   let files := files.insertionSort (fun a b => a.toString < b.toString)
   let str ← files.foldlM (init := "") (fun str entry => do
-    let res ← Decl.fromFile? entry.toString
+    let res ← Decls.fromFile? entry.toString
     match res with
-    | .ok d => do
-      let fmt ← d.toFormat
-      return str ++ fmt ++ "\n\n"
+    | .ok decls => do
+      dbg_trace s!"get here, toFormat is the problem"
+      let mut res := str
+      for d in decls do
+        let fmt ← d.toFormat
+        res := res ++ fmt ++ "\n\n"
+      return res
+      -- return str ++ fmt ++ "\n\n"
     | .error e => do
       dbg_trace e
       let str := str ++ s!"-- The JSON at {entry} failed to generate\n\n"

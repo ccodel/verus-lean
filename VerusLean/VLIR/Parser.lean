@@ -8,6 +8,7 @@ namespace VerusLean
 open Lean
 
 abbrev VMap := Std.HashMap String Typ
+abbrev FMap := Std.HashMap String SpecFn
 
 /--
   The parsing monad for Verus JSONs,
@@ -82,6 +83,16 @@ def fromJsonSpanned? {α : Type} (j : Json) (fj : Json → VParser α) : VParser
       match j.getObjVal? "x" with
       | .error e => throw s!"[fromJsonSpanned?]: no x found: {e}"
       | .ok x => (fun (_, map) => fj x (typ, map))
+
+def xJsonFromSpanned? (j : Json) : VParser Json :=
+  match j.getObjVal? "span" with
+  | .error e => throw s!"[xFromJsonSpanned?]: no span found: {e}"
+  | .ok _ => j.getObjVal? "x"
+
+def typFromX? (j : Json) : VParser Typ :=
+  match j.getObjVal? "typ" with
+  | .error e => throw s!"[typFromX?]: {e}"
+  | .ok obj => Typ.fromJson? obj
 
 def widthFromJson? (j : Json) : VParser Nat :=
   match j.getObjVal? "Width" with
@@ -213,7 +224,7 @@ def UnaryOp.fromJson? (j : Json) : VParser UnaryOp :=
       -- Try seeing if it's a trigger
       match j.getObjVal? "Trigger" with
       | .error e => throw s!"[UnaryOp.fromJson?]: {e}"
-      | .ok obj => .ok UnaryOp.Trigger
+      | .ok _ => .ok UnaryOp.Trigger
         -- match j.getArrVal? 1 with
         -- | .error e => throw s!"expected an array of size 2: {e}, with json {j}"
         -- | .ok obj => do
@@ -298,43 +309,38 @@ def VarBinders.fromJson? (j : Json) : VParser VarBinders :=
   | .error e => throw s!"[VarBinders.fromJson?]: {e}"
   | .ok arr => arr.toList.mapM varBinderFromJson?
 
-def Bind.fromJson? (j : Json) : VParser Bind :=
-  match j.getObjVal? "span" with
-  | .error e => throw s!"[Bind.fromJson?]: no span found: {e}"
-  | .ok _ =>
-    match j.getObjVal? "x" with
-    | .error e => throw s!"[Bind.fromJson?]: no x found: {e}"
-    | .ok obj =>
-      match obj.getObjVal? "Quant" with
-      | .error e => throw s!"[Bind.fromJson?]: {e}"
-      | .ok arr =>
-        match arr.getArr? with
-        | .error e => throw s!"[Bind.fromJson?]: {e}"
-        | .ok arr => do
-          if h : arr.size < 4 then
-            throw s!"[Bind.fromJson?]: Expected an array of size at least 4, got {arr.size}"
-          else
-            let q := arr.get 0 (by omega)
-            let binders := arr.get 1 (by omega)
-            -- let trigs := arr.get 2 (by omega)
-            -- let AssertByLocals := arr.get 3 (by omega)
-            let q ← Quant.fromJson? q
-            let binders ← VarBinders.fromJson? binders
-            return Bind.Quant q binders
+def Bind.fromJson? (j : Json) : VParser Bind := do
+  let obj : Json ← xJsonFromSpanned? j
+  match obj.getObjVal? "Quant" with
+  | .error e => throw s!"[Bind.fromJson?]: {e}"
+  | .ok arr =>
+    match arr.getArr? with
+    | .error e => throw s!"[Bind.fromJson?]: {e}"
+    | .ok arr => do
+      if h : arr.size < 4 then
+        throw s!"[Bind.fromJson?]: Expected an array of size at least 4, got {arr.size}"
+      else
+        let q := arr.get 0 (by omega)
+        let binders := arr.get 1 (by omega)
+        -- let trigs := arr.get 2 (by omega)
+        -- let AssertByLocals := arr.get 3 (by omega)
+        let q ← Quant.fromJson? q
+        let binders ← VarBinders.fromJson? binders
+        return Bind.Quant q binders
 
 partial def ExpX.fromJson? (j : Json) : VParser ExpX :=
   -- Expect that exactly one of the enumerated options will be true
-  match j.getFirstVal? ["Const", "Var", "Unary", "Binary", "If", "Array", "Bind"] with
+  match j.getFirstVal? ["Const", "Var", "Unary", "Binary", "If", "Array", "Bind", "Call"] with
   | .ok ("Const", obj) => do
     let c ← Const.fromJson? obj
     return ExpX.Const c
   | .ok ("Var", obj) =>
     -- Verus gives us an array, where the first element is the identifier
     match obj.getArrVal? 0 with
-    | .error e => throw s!"[ExpX.fromJson?]: {e}"
+    | .error e => throw s!"[ExpX.fromJson?] 1: {e}"
     | .ok i =>
       match i.getStr? with
-      | .error e => throw s!"[ExpX.fromJson?]: {e}"
+      | .error e => throw s!"[ExpX.fromJson?] 2: {e}"
       | .ok ident =>
         -- Add the variable to the state's map
         (fun (typ, map) =>
@@ -343,7 +349,7 @@ partial def ExpX.fromJson? (j : Json) : VParser ExpX :=
   | .ok ("Unary", obj) =>
     -- A unary object should be an array with an op and a data element
     match obj.getArr? with
-    | .error e => throw s!"[ExpX.fromJson?]: {e}"
+    | .error e => throw s!"[ExpX.fromJson?] 3: {e}"
     | .ok arr => do
       if h : arr.size < 2 then
         throw s!"[ExpX.fromJson?]: Expected an array of size at least 2, got {arr.size}"
@@ -356,7 +362,7 @@ partial def ExpX.fromJson? (j : Json) : VParser ExpX :=
   | .ok ("Binary", obj) =>
     -- A binary object should be an array with an op and two data elements
     match obj.getArr? with
-    | .error e => throw s!"[ExpX.fromJson?]: {e}"
+    | .error e => throw s!"[ExpX.fromJson?] 4: {e}"
     | .ok arr => do
       if h : arr.size < 3 then
         throw s!"[ExpX.fromJson?]: Expected an array of size at least 3, got {arr.size}"
@@ -371,7 +377,7 @@ partial def ExpX.fromJson? (j : Json) : VParser ExpX :=
   | .ok ("If", obj) =>
     -- Should be an array with three expressions
     match obj.getArr? with
-    | .error e => throw s!"[ExpX.fromJson?]: {e}"
+    | .error e => throw s!"[ExpX.fromJson?] 5: {e}"
     | .ok arr => do
       if h : arr.size < 3 then
         throw s!"[ExpX.fromJson?]: Expected an array of size at least 3, got {arr.size}"
@@ -393,7 +399,7 @@ partial def ExpX.fromJson? (j : Json) : VParser ExpX :=
   | .ok ("Bind", obj) =>
     -- Should be an array with a bind and an expression
     match obj.getArr? with
-    | .error e => throw s!"[ExpX.fromJson?]: {e}"
+    | .error e => throw s!"[ExpX.fromJson?] 6: {e}"
     | .ok arr => do
       if h : arr.size < 2 then
         throw s!"[ExpX.fromJson?]: Expected an array of size at least 2, got {arr.size}"
@@ -404,8 +410,30 @@ partial def ExpX.fromJson? (j : Json) : VParser ExpX :=
         let bind ← Bind.fromJson? bind
         let exp ← fromJsonSpanned? exp ExpX.fromJson?
         return ExpX.Bind bind exp
+  | .ok ("Call", obj) =>
+    -- Should be an object with a function name and arguments
+    match obj.getArr? with
+    | .error e => throw s!"[ExpX.fromJson?] b {e}"
+    | .ok arr => do
+      if h : arr.size < 3 then
+        throw s!"[ExpX.fromJson?]: Expected an array of size at least 2, got {arr.size}"
+      else
+        let fn := arr.get 0 (by omega)
+        -- let typs := arr.get 1 (by omega)
+        let exps := arr.get 2 (by omega)
+
+        let fnJson : Json ← fn.getObjVal? "Fun"
+        let fnJson : Json ← fnJson.getArrVal? 0
+        let fnSeg : Json ← fnJson.getObjValByPath ["path", "segments"]
+        let fnName : Json ← fnSeg.getArrVal? 0
+        let fnStr : String ← fnName.getStr?
+
+        let expsJson : Array Json ← exps.getArr?
+        let exps : Array ExpX ← expsJson.mapM (fun i => fromJsonSpanned? i ExpX.fromJson?)
+        return ExpX.Call (CallFun.Fun fnStr) [] exps.toList
+    -- throw s!"call not yet implemented, obj is {j}"
   | .ok _ => throw "[ExpX.fromJson?]: Expected one of { Const, Var, Unary, Binary, If }, got something else"
-  | .error e => throw s!"[ExpX.fromJson?]: {e}"
+  | .error e => throw s!"[ExpX.fromJson?] 7: {e}, json is {j}"
 
 partial def ExpX.fromFile? (path : String) : IO (Except String (ExpX × VMap)) := do
   let jsonStr ← IO.FS.readFile path
@@ -413,6 +441,27 @@ partial def ExpX.fromFile? (path : String) : IO (Except String (ExpX × VMap)) :
   match ExpX.fromJson? json (.Bool, Std.HashMap.empty) with
   | .ok exp (_, types) => return .ok (exp, types)
   | .error e _ => return .error e
+
+def getSpecFnName? (j : Json) : VParser String := do
+  let obj : Json ← j.getObjValByPath ["x", "name", "path", "segments"]
+  match obj.getArrVal? 0 with
+  | .error e => throw s!"[getSpecFnName?]: {e}"
+  | .ok segments => return ← segments.getStr?
+
+def SpecFn.fromJson? (j : Json) : VParser SpecFn := do
+  let name ← getSpecFnName? j
+  let inputTypesJson : Json ← j.getObjValByPath ["x", "pars"]
+  let inputTypes : Array Json := (Json.getArr? inputTypesJson).toOption.getD #[]
+  let inputTypes ← inputTypes.mapM (
+    fun i => do typFromX? (← xJsonFromSpanned? i)
+  )
+  let returnTypeJson : Json ← j.getObjValByPath ["x", "ret"]
+  let returnType : Typ ← typFromX? (← xJsonFromSpanned? returnTypeJson)
+  let body : Json ← j.getObjValByPath ["x", "axioms", "spec_axioms", "body_exp"]
+  -- dbg_trace s!"[SpecFn.fromJson?]: body: {body}"
+  return SpecFn.mk name inputTypes.toList returnType (← fromJsonSpanned? body ExpX.fromJson?)
+
+abbrev Decls := List Decl
 
 /--
   Parses a JSON into a `Decl`, or throws an error.
@@ -425,15 +474,32 @@ partial def ExpX.fromFile? (path : String) : IO (Except String (ExpX × VMap)) :
   This function will try to parse an assert first, and if that fails,
   tries to parse a function.
 -/
-partial def Decl.fromJson? (j : Json) : VParser Decl :=
+partial def Decls.fromJson? (j : Json) : VParser Decls :=
+  -- dbg_trace s!"[Decl.fromJson?]: {j}"
   match j.getFirstVal? ["Assert", "FuncCheckSST"] with
   | .ok ("Assert", obj) => do
+    let mut res : Decls := []
+    -- dbg_trace s!"[Decl.fromJson?]: Assert object: {obj}"
     let exp ← ExpX.fromJson? obj
     let (_, vmap) ← get
+    let specFnsJson : Json ← j.getObjVal? "SpecFns"
+    let specFns := (Json.getArr? specFnsJson).toOption.getD #[]
+    let fmap : FMap := Std.HashMap.empty
+    -- dbg_trace s!"[Decl.fromJson?]: get here"
+
+    for specFnJson in specFns do
+      -- dbg_trace s!"specFnJson: {specFnJson}"
+      let specFnName ← getSpecFnName? specFnJson
+      let specFn ← SpecFn.fromJson? specFnJson
+      let fmap := fmap.insert specFnName specFn
+      let specfnDecl := Decl.specfn specFnName specFn.inputTypes specFn.returnType specFn.body
+      res := res.append [specfnDecl]
 
     let assertIdJson ← j.getObjVal? "AssertId"
     let assertId : Nat ← Json.getNat? assertIdJson
-    return Decl.assertion s!"assert_{assertId}" vmap exp
+    let actualAssert := Decl.assertion s!"assert_{assertId}" vmap exp
+    res := res.append [actualAssert]
+    return res
 
   | .ok ("FuncCheckSST", _) => do
 
@@ -445,11 +511,11 @@ partial def Decl.fromJson? (j : Json) : VParser Decl :=
   | .ok _ => throw "[Decl.fromJson?]: Expected one of { Assert, FuncCheckSST }, got something else"
   | .error e => throw s!"[Decl.fromJson?]: {e}"
 
-partial def Decl.fromFile? (path : String) : IO (Except String Decl) := do
+partial def Decls.fromFile? (path : String) : IO (Except String Decls) := do
   let jsonStr ← IO.FS.readFile path
   let json ← IO.ofExcept <| Json.parse jsonStr
-  match Decl.fromJson? json (.Bool, Std.HashMap.empty) with
-  | .ok decl _ => return .ok decl
+  match Decls.fromJson? json (.Bool, Std.HashMap.empty) with
+  | .ok decls _ => return .ok decls
   | .error e _ => return .error e
 
 /-

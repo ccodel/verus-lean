@@ -191,6 +191,13 @@ inductive Bind where
   -- | Choose ()
 deriving Repr, Inhabited
 
+
+inductive CallFun where
+  | Fun (fn : Ident) -- an optional resolved Fun for methods currently not implemented
+  -- | Recursive (name : Ident)
+  -- | InternalFun (name : Ident)
+deriving Repr, Inhabited
+
 /--
   Flattened Verus expressions.
 
@@ -210,6 +217,8 @@ inductive ExpX where
   | If (cond branch₁ branch₂ : ExpX)
   -- | ArrayLiteral (elems : Array ExpX)
   | Bind (bind : Bind) (exp : ExpX)
+  /-- Call to spec function -/
+  | Call (fn : CallFun) (typs : List Typ) (exps : List ExpX)
 deriving Repr, Inhabited
 
 abbrev Exps := Array ExpX
@@ -275,7 +284,15 @@ pub struct FuncCheckSst {
 -/
 inductive Decl where
   | assertion (theoremName : Ident) (decls : Std.HashMap Ident Typ) (exp : ExpX)
+  | specfn (fnName : Ident) (inputTypes : List Typ) (returnType : Typ) (body : ExpX)
   --| func (f : FuncCheckSST)
 deriving Repr, Inhabited
+
+
+structure SpecFn where
+  name : Ident
+  inputTypes : List Typ
+  returnType : Typ
+  body : ExpX
 
 end VerusLean

@@ -88,9 +88,22 @@ partial def ExpX.pp (e : ExpX) : String :=
     let bnd := Bind.pp bnd
     let exp := ExpX.pp exp
     bnd ++ ", " ++ exp
+  | .Call fn typs exps =>
+    dbg_trace s!"delab get here?"
+    let fn := match fn with
+      | CallFun.Fun fn => fn
+    -- let typs := typs.map Typ.pp
+    dbg_trace s!"delab get here!!"
+    let exps := exps.map ExpX.pp
+    let exps := String.intercalate ", " exps
+    fn ++ "(" ++ exps ++ ")"
 
 def ExpX.toTheoremString (e : ExpX) (name : String := "verus_thm") (decls : String := "") : String :=
   "theorem " ++ name ++ " " ++ decls ++ ": " ++ ExpX.pp e ++ " := by sorry\n\n"
+
+-- def ?.toDefString (name : String) (decls : String := "") (retTyp : String) (e : ExpX) : String :=
+--   "def " ++ name ++ decls ++ " : " ++ retTyp ++ " := " ++ ExpX.pp e ++ "\n\n"
+-- def add_one (x : Int) : Int := x + 1
 
 unsafe def Decl.toFormat (d : Decl) : IO String := do
   searchPathRef.set compile_time_search_path%
@@ -109,12 +122,13 @@ unsafe def Decl.toFormat (d : Decl) : IO String := do
         })
         (do
           try
+            dbg_trace "Delaborating"
             let syns ← Lean.liftCommandElabM d.toSyntax
-            -- dbg_trace "Performing typechecking"
+            dbg_trace "Performing typechecking"
             for syn in syns do
-              -- dbg_trace s!"{syn}"
+              dbg_trace s!"{syn}"
               Lean.liftCommandElabM <| Elab.Command.elabCommandTopLevel syn
-            -- dbg_trace "Formatting"
+            dbg_trace "Formatting"
             let mut fmt : Format := ""
             for syn in syns do
               fmt := fmt ++ .line ++ (

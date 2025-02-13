@@ -29,4 +29,9 @@ theorem assert_22 (y : Nat) (x : Int) : ∀ (x : Int) (y : Nat), !(x + y = x + y
 
 theorem assert_9 (y : Nat) (x : Int) : ∀ (x : Int) (y : Nat), x + y = y + x := by sorry
 
+
+def add_one (x : Int) : Int := x + 1
+
+theorem assert_add_one (x : Int) : add_one x = x + 1 := by sorry
+
 end VerusLean
