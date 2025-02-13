@@ -122,13 +122,13 @@ unsafe def Decl.toFormat (d : Decl) : IO String := do
         })
         (do
           try
-            dbg_trace "Delaborating"
+            -- dbg_trace "Delaborating"
             let syns ← Lean.liftCommandElabM d.toSyntax
-            dbg_trace "Performing typechecking"
+            -- dbg_trace "Performing typechecking"
             for syn in syns do
-              dbg_trace s!"{syn}"
+              -- dbg_trace s!"{syn}"
               Lean.liftCommandElabM <| Elab.Command.elabCommandTopLevel syn
-            dbg_trace "Formatting"
+            -- dbg_trace "Formatting"
             let mut fmt : Format := ""
             for syn in syns do
               fmt := fmt ++ .line ++ (

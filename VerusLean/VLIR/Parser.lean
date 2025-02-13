@@ -91,8 +91,25 @@ def xJsonFromSpanned? (j : Json) : VParser Json :=
 
 def typFromX? (j : Json) : VParser Typ :=
   match j.getObjVal? "typ" with
-  | .error e => throw s!"[typFromX?]: {e}"
+  | .error e => throw s!"[typFromX?]: {e} with json {j}"
   | .ok obj => Typ.fromJson? obj
+
+def nameTypFromX? (j : Json) : VParser (String × Typ) :=
+  match j.getObjVal? "name" with
+  | .error e => throw s!"[nameTypFromX?]: {e}"
+  | .ok obj => do
+    match obj.getArr? with
+    | .error e => throw s!"[nameTypFromX?]: {e}"
+    | .ok arr => do
+      if h : arr.size < 1 then
+        throw s!"[nameTypFromX?]: Expected an array of size at least 1, got {arr.size}"
+      else
+        let name := arr.get 0 (by omega)
+        match name.getStr? with
+        | .ok name =>
+          let typ ← typFromX? j
+          return (name, typ)
+        | .error e => throw s!"[nameTypFromX?]: {e}"
 
 def widthFromJson? (j : Json) : VParser Nat :=
   match j.getObjVal? "Width" with
@@ -450,16 +467,19 @@ def getSpecFnName? (j : Json) : VParser String := do
 
 def SpecFn.fromJson? (j : Json) : VParser SpecFn := do
   let name ← getSpecFnName? j
-  let inputTypesJson : Json ← j.getObjValByPath ["x", "pars"]
-  let inputTypes : Array Json := (Json.getArr? inputTypesJson).toOption.getD #[]
-  let inputTypes ← inputTypes.mapM (
-    fun i => do typFromX? (← xJsonFromSpanned? i)
+  let inputsJson : Json ← j.getObjValByPath ["x", "pars"]
+  let inputsJson : Array Json := (Json.getArr? inputsJson).toOption.getD #[]
+  let inputsDefs ← inputsJson.mapM (
+    fun i => do nameTypFromX? (← xJsonFromSpanned? i)
   )
+  let mut inputs : Std.HashMap Ident Typ := Std.HashMap.empty
+  for (name, typ) in inputsDefs do
+    inputs := inputs.insert name typ
   let returnTypeJson : Json ← j.getObjValByPath ["x", "ret"]
   let returnType : Typ ← typFromX? (← xJsonFromSpanned? returnTypeJson)
   let body : Json ← j.getObjValByPath ["x", "axioms", "spec_axioms", "body_exp"]
   -- dbg_trace s!"[SpecFn.fromJson?]: body: {body}"
-  return SpecFn.mk name inputTypes.toList returnType (← fromJsonSpanned? body ExpX.fromJson?)
+  return SpecFn.mk name inputs returnType (← fromJsonSpanned? body ExpX.fromJson?)
 
 abbrev Decls := List Decl
 
@@ -484,15 +504,16 @@ partial def Decls.fromJson? (j : Json) : VParser Decls :=
     let (_, vmap) ← get
     let specFnsJson : Json ← j.getObjVal? "SpecFns"
     let specFns := (Json.getArr? specFnsJson).toOption.getD #[]
-    let fmap : FMap := Std.HashMap.empty
+    -- let fmap : FMap := Std.HashMap.empty
     -- dbg_trace s!"[Decl.fromJson?]: get here"
 
     for specFnJson in specFns do
       -- dbg_trace s!"specFnJson: {specFnJson}"
       let specFnName ← getSpecFnName? specFnJson
       let specFn ← SpecFn.fromJson? specFnJson
-      let fmap := fmap.insert specFnName specFn
-      let specfnDecl := Decl.specfn specFnName specFn.inputTypes specFn.returnType specFn.body
+      -- let fmap := fmap.insert specFnName specFn
+      let specfnDecl := Decl.specfn specFnName specFn.inputs specFn.returnType specFn.body
+      -- dbg_trace s!"specfnDecl: {specfnDecl}"
       res := res.append [specfnDecl]
 
     let assertIdJson ← j.getObjVal? "AssertId"

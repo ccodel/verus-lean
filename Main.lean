@@ -631,11 +631,18 @@ unsafe def genFromDir' (dirPath : String) : IO String := do
     let res ← Decls.fromFile? entry.toString
     match res with
     | .ok decls => do
-      dbg_trace s!"get here, toFormat is the problem"
+      -- dbg_trace s!"get here, toFormat is the problem"
       let mut res := str
-      for d in decls do
-        let fmt ← d.toFormat
-        res := res ++ fmt ++ "\n\n"
+
+      -- for d in decls do
+      --   let fmt ← d.toFormat
+      --   res := res ++ fmt ++ "\n\n"
+
+      -- for debugging purpose, avoid segfault: function expected at add_one
+      let d := decls.get! 0
+      let fmt ← d.toFormat
+      res := res ++ fmt ++ "\n\n"
+
       return res
       -- return str ++ fmt ++ "\n\n"
     | .error e => do

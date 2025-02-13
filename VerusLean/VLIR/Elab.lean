@@ -177,7 +177,25 @@ def Decl.toSyntax (d : Decl) : CommandElabM (TSyntaxArray `command) := do
         := by sorry
     )
     return #[c]
-  | .specfn fnName inputTypes returnType body =>
-    throwError "specfn not supported"
+  | .specfn fnName inputs returnType body =>
+  -- syntax: def add_one (x : Int) : Int := x + 1
+    let ident := fnName.toSyntax
+    let args : TSyntaxArray ``Lean.Parser.Term.bracketedBinder ←
+      liftTermElabM (
+        inputs.toArray.mapM (fun (i, ty) => do
+          let i := i.toSyntax
+          let ty ← ty.toSyntax
+          `(Lean.Parser.Term.bracketedBinderF| ($i : $ty))
+        )
+      )
+    let returnType : Term ← liftTermElabM returnType.toSyntax
+    let body : Term ← liftTermElabM body.toSyntax
+    let c ← `(command|
+      def $ident $(args):bracketedBinder*
+        : $returnType
+        := $body
+    )
+    -- dbg_trace s!"get to toSyntax {c}"
+    return #[c]
 
 end VerusLean

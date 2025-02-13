@@ -284,15 +284,16 @@ pub struct FuncCheckSst {
 -/
 inductive Decl where
   | assertion (theoremName : Ident) (decls : Std.HashMap Ident Typ) (exp : ExpX)
-  | specfn (fnName : Ident) (inputTypes : List Typ) (returnType : Typ) (body : ExpX)
+  | specfn (fnName : Ident) (inputs : Std.HashMap Ident Typ) (returnType : Typ) (body : ExpX)
   --| func (f : FuncCheckSST)
 deriving Repr, Inhabited
 
 
 structure SpecFn where
   name : Ident
-  inputTypes : List Typ
+  inputs : Std.HashMap Ident Typ
   returnType : Typ
   body : ExpX
+deriving Repr, Inhabited
 
 end VerusLean
