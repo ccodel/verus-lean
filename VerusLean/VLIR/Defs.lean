@@ -14,18 +14,14 @@ namespace VerusLean
 
 open Lean (Json ToJson FromJson)
 
-def Ident := String
-deriving ToJson, FromJson, Repr, DecidableEq, Hashable, Inhabited
-
-def Idents := Array Ident
-deriving ToJson, FromJson, Repr, DecidableEq, Hashable, Inhabited
+abbrev Ident := String
+abbrev Idents := Array Ident
 
 -- CC: Figure out `ToJson`, `FromJson` here, because Rust's serialization is different
 
 -- CC: A pair, because the second element is a disambiguation (a way to tell apart two identical variable strings)
 --     that I didn't want to implement atm
-def VarIdent := (Ident × Unit)
-deriving Repr, DecidableEq, Inhabited
+abbrev VarIdent := (Ident × Unit)
 
 inductive Mode where
   | Spec
@@ -79,7 +75,9 @@ inductive Typ where
   | SInt (width : Nat)    /- Signed fixed-width integers      -/
   | Char
   | StrSlice
-deriving Repr, Inhabited
+  -- | ConstInt (i : Int)    /- Const integer type argument      -/
+  | Array (t : Typ)       /- Array, ignore length in Rust     -/
+deriving Repr, Inhabited, DecidableEq
 
 /-- Constant value literals -/
 inductive Const
@@ -110,7 +108,7 @@ inductive ArithOp
   | Sub
   /-- Multiplication on `IntRange`. -/
   | Mul
-  /-- Euclidean divisoin on `IntRange` (round towards -inf, not round-towards-zero truncation). -/
+  /-- Euclidean division on `IntRange` (round towards -inf, not round-towards-zero truncation). -/
   | EuclideanDiv
   /-- Euclidean mod (non-negative result, even for negative divisors). -/
   | EuclideanMod
@@ -139,7 +137,7 @@ inductive UnaryOp where
   InferSpecForLoopIter { print_hint: Bool }, // loops?
   CastToInteger, // coercion after casting to an integer (type argument?)
   -/
-deriving Repr, Inhabited
+deriving Repr, Inhabited, DecidableEq
 
 /--
   Primitive binary operations.
@@ -173,26 +171,68 @@ inductive BinaryOp
   -- | StrGetChar
 deriving Repr, Inhabited, DecidableEq
 
+inductive Quant where
+  | Forall
+  | Exists
+deriving Repr, Inhabited, DecidableEq
+
+
+inductive CallFun where
+  | Fun (fn : Ident) -- an optional resolved Fun for methods currently not implemented
+  -- | Recursive (name : Ident)
+  -- | InternalFun (name : Ident)
+deriving Repr, Inhabited
+
+
+structure VarBinder (ty : Type u) where
+  name : Ident
+  val : ty
+deriving Repr, Inhabited, DecidableEq
+
+mutual
+
+/--
+  Variable binders.
+
+  Introduces bound variables of different types.
+
+  Note: The `BndX` analogue in Verus has lots of triggers, which we ignore.
+-/
+inductive Bind where
+  -- CC: Verus says this is a `VarBinders`, but for now, we say that each `let x := e` has a single variable binding
+  | Let (var : VarBinder Exp)
+  | Quant (q : Quant) (vars : List (VarBinder Typ))
+  | Lambda (vars : List (VarBinder Typ))
+  -- CC: Ignore choose for now
+  -- | Choose ()
+deriving Repr, Inhabited
+
 /--
   Flattened Verus expressions.
 
   Expressions have return values.
 -/
-inductive ExpX where
+inductive Exp where
   /-- Constant value literals. -/
   | Const (c : Const)
   /-- Local variables, as a right-hand side of an expression. -/
   | Var (ident : Ident)
   /-- Primitive unary function application. -/
-  | Unary (op : UnaryOp) (arg : ExpX)
-  -- | UnaryOpr (op : UnaryOp) (arg : ExpX)
+  | Unary (op : UnaryOp) (arg : Exp)
+  -- | UnaryOpr (op : UnaryOp) (arg : Exp)
   /-- Primitive binary function application. -/
-  | Binary (op : BinaryOp) (arg₁ arg₂ : ExpX)
-  -- | BinaryOpr (op : BinaryOp) (arg₁ arg₂ : ExpX)
-  | If (cond branch₁ branch₂ : ExpX)
+  | Binary (op : BinaryOp) (arg₁ arg₂ : Exp)
+  -- | BinaryOpr (op : BinaryOp) (arg₁ arg₂ : Exp)
+  | If (cond branch₁ branch₂ : Exp)
+  -- | ArrayLiteral (elems : Array Exp)
+  | Bind (bind : Bind) (exp : Exp)
+  /-- Call to spec function -/
+  | Call (fn : CallFun) (typs : List Typ) (exps : List Exp)
 deriving Repr, Inhabited
 
-abbrev Exps := Array ExpX
+end /- mutual -/
+
+abbrev Exps := Array Exp
 
 /--
   Flattened Verus statements.
@@ -203,12 +243,12 @@ abbrev Exps := Array ExpX
 inductive StmX where
   -- CC: Is this needed, since the only way assertions end up in Lean is via AssertLean?
   -- A normal Verus assertion.
-  --| Assert (exp : ExpX)
+  --| Assert (exp : Exp)
   -- An assertion on a bitvector statement.
   -- | AssertBitVector (requires ensures : Exps)
   --| Return ()
   /-- If-statements. Second branch can be optionally omitted. -/
-  | If (exp : ExpX) (branch₁ : StmX) (branch₂ : Option StmX)
+  | If (exp : Exp) (branch₁ : StmX) (branch₂ : Option StmX)
 deriving Repr, Inhabited -/
 
 --abbrev Stms := Array StmX
@@ -236,26 +276,34 @@ structure FuncCheckSST where
   body : StmX
 deriving Repr, Inhabited -/
 
-/-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FuncCheckSst {
-    pub reqs: Exps,
-    pub post_condition: Arc<PostConditionSst>,
-    pub mask_set: Arc<crate::inv_masks::MaskSetE<Exp>>,
-    pub unwind: UnwindSst,
-    pub body: Stm,
-    pub local_decls: Arc<Vec<LocalDecl>>,
-    pub statics: Arc<Vec<Fun>>,
-}
- -/
+structure Assertion where
+  name : Ident
+  decls : Std.HashMap Ident Typ
+  body : Exp
+deriving Repr, Inhabited
+
+structure SpecFn where
+  name : Ident
+  inputs : Std.HashMap Ident Typ
+  returnType : Typ
+  body : Exp
+deriving Repr, Inhabited
 
 /--
   These are top-level "Lean" objects that Lean will evantually turn into
   `def`s and `theorem`s. See `Elab.lean`.
 -/
 inductive Decl where
-  | assertion (theoremName : Ident) (decls : Std.HashMap Ident Typ) (exp : ExpX)
+  | assertion (a : Assertion)
+  | specFn (f : SpecFn)
   --| func (f : FuncCheckSST)
 deriving Repr, Inhabited
+
+--------------------------------------------------------------------------------
+
+def Bind.idents : Bind → List Ident
+  | .Let _ => []
+  | .Quant _ vars => vars.map (·.name)
+  | .Lambda vars => vars.map (·.name)
 
 end VerusLean

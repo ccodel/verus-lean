@@ -1,3 +1,4 @@
 /.lake
 **/vir.json
 .direnv/
+.DS_Store

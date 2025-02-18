@@ -12,6 +12,17 @@ open Lean PrettyPrinter
 def Ident.pp (i : Ident) : String := i
 def VarIdent.pp (i : VarIdent) : String := i.1
 
+def Typ.pp (ty : Typ) : String :=
+  match ty with
+  | .Bool => "Bool"
+  | .Int => "Int"
+  | .Nat => "Nat"
+  | .UInt w => s!"UInt{w}"
+  | .SInt w => s!"Int{w}"
+  | .Char => "Char"
+  | .Array t => s!"Array ({Typ.pp t})"
+  | _ => "Unit"
+
 def Const.pp (c : Const) : String :=
   match c with
   | .Bool b => toString b
@@ -60,25 +71,60 @@ def BinaryOp.pp (op : BinaryOp) : String :=
   | .Arith arith _ => ArithOp.pp arith
   | .Bitwise bitwise _ => BitwiseOp.pp bitwise
 
-def ExpX.pp (e : ExpX) : String :=
+def Quant.pp (q : Quant) : String :=
+  match q with
+  | .Forall => "∀"
+  | .Exists => "∃"
+
+mutual
+
+partial def Bind.pp (b : Bind) : String :=
+  match b with
+  | .Let v =>
+    let valStr := Exp.pp v.val
+    s!"let {v.name} := {valStr}; "
+  | .Quant q vars =>
+    let qStr := Quant.pp q
+    let varsStr := vars.map (fun v => s!"({v.name} : {Typ.pp v.val})")
+    s!"{qStr} {varsStr}, "
+  | .Lambda vars =>
+    let varsStr := vars.map (fun v => s!"({v.name} : {Typ.pp v.val})")
+    s!"λ {varsStr} =>"
+
+partial def Exp.pp (e : Exp) : String :=
   match e with
   | .Const c => Const.pp c
   | .Var ident => ident
   | .Unary op e =>
-    let e := ExpX.pp e
+    let e := Exp.pp e
     "(" ++ UnaryOp.pp op ++ e ++ ")"
   | .Binary op lhs rhs =>
-    let lhs := ExpX.pp lhs
-    let rhs := ExpX.pp rhs
+    let lhs := Exp.pp lhs
+    let rhs := Exp.pp rhs
     "(" ++ lhs ++ BinaryOp.pp op ++ rhs ++ ")"
   | .If cond b₁ b₂ =>
-    let cond := ExpX.pp cond
-    let b₁ := ExpX.pp b₁
-    let b₂ := ExpX.pp b₂
+    let cond := Exp.pp cond
+    let b₁ := Exp.pp b₁
+    let b₂ := Exp.pp b₂
     "if (" ++ cond ++ ") then (" ++ b₁ ++ ") else (" ++ b₂ ++ ")"
+  | .Bind bnd exp =>
+    let bnd := Bind.pp bnd
+    let exp := Exp.pp exp
+    bnd ++ exp
+  | .Call fn _ exps =>
+    dbg_trace s!"delab get here?"
+    let fn := match fn with
+      | CallFun.Fun fn => fn
+    -- let typs := typs.map Typ.pp
+    dbg_trace s!"delab get here!!"
+    let exps := exps.map Exp.pp
+    let exps := String.intercalate ", " exps
+    fn ++ "(" ++ exps ++ ")"
 
-def ExpX.toTheoremString (e : ExpX) (name : String := "verus_thm") (decls : String := "") : String :=
-  "theorem " ++ name ++ " " ++ decls ++ ": " ++ ExpX.pp e ++ " := by sorry\n\n"
+end /- mutual -/
+
+def Exp.toTheoremString (e : Exp) (name : String := "verus_thm") (decls : String := "") : String :=
+  "theorem " ++ name ++ " " ++ decls ++ ": " ++ Exp.pp e ++ " := by sorry\n\n"
 
 unsafe def Decl.toFormat (d : Decl) : IO String := do
   searchPathRef.set compile_time_search_path%
@@ -97,6 +143,7 @@ unsafe def Decl.toFormat (d : Decl) : IO String := do
         })
         (do
           try
+            -- dbg_trace "Delaborating"
             let syns ← Lean.liftCommandElabM d.toSyntax
             -- dbg_trace "Performing typechecking"
             for syn in syns do
