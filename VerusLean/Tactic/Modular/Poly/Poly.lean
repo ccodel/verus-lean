@@ -1,100 +1,94 @@
+import VerusLean.Upstream.Batteries.Rat
 import VerusLean.Tactic.Modular.Poly.MTerm
 
 namespace VerusLean.Tactic.Modular
 
-/-structure Poly where
-  -- const : Rat := 0
-  terms : Array MTerm
-deriving Inhabited, DecidableEq
-
-structure PolyRef where
-  -- const : Rat := 0
-  terms : Array MTermRef
-deriving Inhabited, DecidableEq-/
-
 /-- Concrete representation of polynomials. (Array of `MTerm`s.) -/
-abbrev Poly := Array MTerm
+abbrev Poly (F : Type u) [Field F] [DecidableEq F] := Array (MTerm F)
 
-inductive PolyHistory where
+inductive PolyHistory (F : Type u) [Field F] [DecidableEq F] where
   | zero
   | basis (idx : Nat)
-  | scalarMul (c : Rat) (p : PolyHistory)
-  | termMul (t : MTerm) (p : PolyHistory)
-  | addHist (p₁ p₂ : PolyHistory)
-  | subHist (p₁ p₂ : PolyHistory)
+  | scalarMul (c : F) (p : PolyHistory F)
+  | termMul (t : MTerm F) (p : PolyHistory F)
+  | addHist (p₁ p₂ : PolyHistory F)
+  | subHist (p₁ p₂ : PolyHistory F)
 deriving Inhabited
 
-structure HPoly where
-  poly : Poly
-  history : PolyHistory
+/-- Historied polynomials. -/
+structure HPoly (F : Type u) [Field F] [DecidableEq F] where
+  poly : Poly F
+  history : PolyHistory F
 deriving Inhabited
 
-structure PolyRef where
+/-structure PolyRef where
   index : Nat
   history : PolyHistory
-deriving Inhabited
+deriving Inhabited -/
 
+scoped notation "M[" F "]" => MTerm F
+scoped notation "P[" F "]" => Poly F
+@[inherit_doc] scoped notation "HP[" F "]" => HPoly F
 
 namespace Poly
 
-def size (p : Poly) : Nat := Array.size p
+variable {F : Type u} [Field F] [DecidableEq F]
 
-protected def zero : Poly := #[]
-protected def one : Poly := #[MTerm.one]
+def size (p : P[F]) : Nat := Array.size p
 
-instance instZero : Zero Poly := ⟨Poly.zero⟩
-instance instInhabited : Inhabited Poly := ⟨0⟩
+protected def zero : P[F] := #[]
+protected def one : P[F] := #[MTerm.one]
 
-instance instCoeOfMTerm : Coe MTerm Poly := ⟨λ t => #[t]⟩
-instance instCoeOfMonomial : Coe Monomial Poly := ⟨λ m => #[m]⟩
+instance instZero : Zero P[F] := ⟨Poly.zero⟩
+instance instInhabited : Inhabited P[F] := ⟨0⟩
 
-def toString (p : Poly) : String :=
+def ofMonomial (m : Monomial) : P[F] := #[⟨1, m⟩]
+def ofMTerm (t : MTerm F) : P[F] := #[t]
+
+instance instCoeOfMTerm : Coe M[F] P[F] := ⟨ofMTerm⟩
+instance instCoeOfMonomial : Coe Monomial P[F] := ⟨ofMonomial⟩
+
+def toString [ToString F] (p : P[F]) : String :=
   let rec loop (i : Nat) (str : String) : String :=
     if h : i < p.size then
       let t := p[i]
       let c := t.coeff
       let m := t.monomial
-      if c < 0 then
-        if str.length > 0 then
-          loop (i + 1) (str ++ s!" - {MTerm.mk (-c) m}")
-        else
-          loop (i + 1) s!"-{MTerm.mk (-c) m}"
+      if str.length > 0 then
+        loop (i + 1) (str ++ s!" + {MTerm.mk c m}")
       else
-        if str.length > 0 then
-          loop (i + 1) (str ++ s!" + {t}")
-        else
-          loop (i + 1) s!"{t}"
+        loop (i + 1) s!"{MTerm.mk c m}"
     else str
   loop 0 ""
 
-instance instToString : ToString Poly := ⟨toString⟩
+instance instToString [ToString F] : ToString P[F] := ⟨toString⟩
 
-def leadingTerm (p : Poly) : MTerm :=
+def leadingTerm (p : P[F]) : M[F] :=
   if h : p.size > 0 then
     p[0]
   else
     ⟨0, 0⟩
 
-def normalize (p : Poly) : Poly :=
+def normalize (p : P[F]) : P[F] :=
   if p.size = 0 then p else
   let leadingCoeff := p.leadingTerm.coeff
   p.map (λ t => ⟨t.coeff / leadingCoeff, t.monomial⟩)
 
-protected def neg (p : Poly) : Poly :=
+protected def neg (p : P[F]) : P[F] :=
   p.map (λ t => -t)
 
-instance instNeg : Neg Poly := ⟨Poly.neg⟩
+instance instNeg : Neg P[F] := ⟨Poly.neg⟩
 
 /--
   Adds two polynomials by combining like terms.
 
   Assumes that the polynomial is sorted in decreasing order under `cmp`.
 -/
-protected def add (p₁ p₂ : Poly) (cmp : MOrder := Monomial.grevlexOrder) : Poly :=
+protected def add (p₁ p₂ : P[F]) (cmp : MOrder := Monomial.grevlexOrder) : P[F] :=
   let numTerms₁ := p₁.size
   let numTerms₂ := p₂.size
   let totalNumTerms := numTerms₁ + numTerms₂
-  let rec loop (i j : Nat) (p : Poly) : Poly :=
+  let rec loop (i j : Nat) (p : P[F]) : P[F] :=
     if i + j < totalNumTerms then
       if hi : i < numTerms₁ then
         if hj : j < numTerms₂ then
@@ -129,13 +123,13 @@ protected def add (p₁ p₂ : Poly) (cmp : MOrder := Monomial.grevlexOrder) : P
 
 -- NB: This will use the `grevLexOrder` ordering.
 --     To supply a different ordering, call `add` directly.
-instance instAdd : Add Poly := ⟨Poly.add⟩
+instance instAdd : Add P[F] := ⟨Poly.add⟩
 
-protected def sub (p₁ p₂ : Poly) (cmp : MOrder := Monomial.grevlexOrder) : Poly :=
+protected def sub (p₁ p₂ : P[F]) (cmp : MOrder := Monomial.grevlexOrder) : P[F] :=
   let numTerms₁ := p₁.size
   let numTerms₂ := p₂.size
   let totalNumTerms := numTerms₁ + numTerms₂
-  let rec loop (i j : Nat) (p : Poly) : Poly :=
+  let rec loop (i j : Nat) (p : P[F]) : P[F] :=
     if i + j < totalNumTerms then
       if hi : i < numTerms₁ then
         if hj : j < numTerms₂ then
@@ -170,26 +164,26 @@ protected def sub (p₁ p₂ : Poly) (cmp : MOrder := Monomial.grevlexOrder) : P
 
 -- NB: This will use the `grevLexOrder` ordering.
 --     To supply a different ordering, call `add` directly.
-instance instSub : Sub Poly := ⟨Poly.sub⟩
+instance instSub : Sub P[F] := ⟨Poly.sub⟩
 
-def mul_term_poly (t : MTerm) (p : Poly) : Poly :=
+def mul_term_poly (t : M[F]) (p : P[F]) : P[F] :=
   p.map (λ t' => t * t')
 
-def mul_poly_term (p : Poly) (t : MTerm) : Poly :=
-  p.map (λ t' => t' * t)
+def mul_poly_term (p : P[F]) (t : M[F]) : P[F] :=
+  mul_term_poly t p
 
-instance instHMulTermPoly : HMul MTerm Poly Poly := ⟨mul_term_poly⟩
-instance instHMulPolyTerm : HMul Poly MTerm Poly := ⟨mul_poly_term⟩
+instance instHMulTermPoly : HMul M[F] P[F] P[F] := ⟨mul_term_poly⟩
+instance instHMulPolyTerm : HMul P[F] M[F] P[F] := ⟨mul_poly_term⟩
 
-protected def mul (p₁ p₂ : Poly) (cmp : MOrder := Monomial.grevlexOrder) : Poly :=
+protected def mul (p₁ p₂ : P[F]) (cmp : MOrder := Monomial.grevlexOrder) : P[F] :=
   let prods := p₂.map (λ t₂ => p₁ * t₂)
   prods.foldl (init := 0) (Poly.add · · cmp)
 
-instance instMul : Mul Poly := ⟨Poly.mul⟩
+instance instMul : Mul P[F] := ⟨Poly.mul⟩
 
 -- Divides `p₁` by `p₂`. Returns a pair `(q, r)`.
 -- If `p₂` is zero, returns `(0, 0)`.
-protected partial def div (p₁ p₂ : Poly) (cmp : MOrder := Monomial.grevlexOrder) : Poly × Poly :=
+protected partial def div (p₁ p₂ : P[F]) (cmp : MOrder := Monomial.grevlexOrder) : P[F] × P[F] :=
   let lt₂ := p₂.leadingTerm
   if lt₂ = 0 then (0, 0) else
 
@@ -198,7 +192,7 @@ protected partial def div (p₁ p₂ : Poly) (cmp : MOrder := Monomial.grevlexOr
     cannot divide the leading term of `r`. Subtract the new term from `r`
     and add the appropriate quotient to `q`.
   -/
-  let rec loop (q r : Poly) : Poly × Poly :=
+  let rec loop (q r : P[F]) : P[F] × P[F] :=
     if r = 0 then (q, 0) else
     let ltr := r.leadingTerm
     match ltr.div? lt₂ with
@@ -224,11 +218,11 @@ protected partial def div (p₁ p₂ : Poly) (cmp : MOrder := Monomial.grevlexOr
 
   The division is unique up to the ordering of the polynomials in `ps`.
 -/
-partial def divPolys (p : Poly) (ps : Array Poly)
-    (cmp : MOrder := Monomial.grevlexOrder) : (Array Poly × Poly) :=
+partial def divPolys (p : P[F]) (ps : Array P[F])
+    (cmp : MOrder := Monomial.grevlexOrder) : (Array P[F] × P[F]) :=
   let n := ps.size
-  let rec loop (p r : Poly) (qs : Array Poly)
-      (hqs : qs.size = ps.size) : (Array Poly × Poly) :=
+  let rec loop (p r : P[F]) (qs : Array P[F])
+      (hqs : qs.size = ps.size) : (Array P[F] × P[F]) :=
     if p = 0 then (qs, r) else
     let ltp := p.leadingTerm
 
@@ -251,7 +245,7 @@ partial def divPolys (p : Poly) (ps : Array Poly)
 
     innerLoop 0
 
-  let qs : Array Poly := Array.mkArray ps.size 0
+  let qs : Array P[F] := Array.mkArray ps.size 0
   have hqs : qs.size = ps.size := by
     simp only [Array.size_mkArray, qs]
   loop p 0 qs hqs
@@ -261,13 +255,13 @@ end Poly
 /-
   Constructs the "S-polynomial"
 -/
-/-def sPoly (basis : Array HPoly) (i j : Nat)
-    (hi : i < basis.size) (hj : j < basis.size) (cmp : MOrder) : (Unit ⊕ HPoly) :=
+/-def sP[F] (basis : Array HP[F]) (i j : Nat)
+    (hi : i < basis.size) (hj : j < basis.size) (cmp : MOrder) : (Unit ⊕ HP[F]) :=
 
   let ⟨f, fHist⟩ := basis[i]
   let ⟨g, gHist⟩ := basis[j]
-  if hf : f.size = 0 then panic! "sPoly: f is zero" else
-  if hg : g.size = 0 then panic! "sPoly: g is zero" else
+  if hf : f.size = 0 then panic! "sP[F]: f is zero" else
+  if hg : g.size = 0 then panic! "sP[F]: g is zero" else
 
   let ltf := leadingTerm' (by exact Nat.zero_lt_of_ne_zero hf)
   let ltg := leadingTerm' (by exact Nat.zero_lt_of_ne_zero hg)
@@ -283,17 +277,21 @@ end Poly
         let leftHist := History.termMul qf fHist
         let right := qg * g
         let rightHist := History.termMul qg gHist
-        let sp := Polynomial.sub (qf * f) (qg * g) cmp
+        let sp := P[F]nomial.sub (qf * f) (qg * g) cmp
         let hist := leftHist - rightHist
-        Sum.inr <| HPoly.mk sp (leftHist - rightHist)
+        Sum.inr <| HP[F].mk sp (leftHist - rightHist)
     else
       Sum.inl ()
 
-end Poly -/
+end P[F] -/
 
 namespace PolyHistory
 
-instance instZero : Zero PolyHistory := ⟨.zero⟩
+variable {F : Type u} [Field F] [DecidableEq F]
+
+local notation "PH[ " F " ]" => PolyHistory F
+
+instance instZero : Zero PH[F] := ⟨.zero⟩
 
 /-def toString : History → String
   | .Zero => ""
@@ -323,7 +321,7 @@ instance instZero : Zero PolyHistory := ⟨.zero⟩
     else if pStr₂.length = 0 then pStr₁
     else s!"({pStr₁} - {pStr₂})"-/
 
-def toString : PolyHistory → String
+def toString [ToString F] : PH[F] → String
   | .zero => "0"
   | .basis idx => s!"[{idx}]"
   | .scalarMul c p => s!"({c} * {toString p})"
@@ -331,9 +329,9 @@ def toString : PolyHistory → String
   | .addHist p₁ p₂ => s!"({toString p₁} + {toString p₂})"
   | .subHist p₁ p₂ => s!"({toString p₁} - {toString p₂})"
 
-instance instToString : ToString PolyHistory := ⟨toString⟩
+instance instToString [ToString F] : ToString PH[F] := ⟨toString⟩
 
-def pushNeg : PolyHistory → PolyHistory
+def pushNeg : PH[F] → PH[F]
   | .zero => .zero
   | .basis idx => .scalarMul (-1) (.basis idx)
   | .scalarMul c h =>
@@ -343,28 +341,28 @@ def pushNeg : PolyHistory → PolyHistory
   | .addHist h₁ h₂ => .subHist (pushNeg h₁) h₂
   | .subHist h₁ h₂ => .addHist (pushNeg h₁) h₂
 
-protected def add : PolyHistory → PolyHistory → PolyHistory
+protected def add : PH[F] → PH[F] → PH[F]
   | .zero, h₂ => h₂
   | h₁, .zero => h₁
   | h₁, h₂ => .addHist h₁ h₂
 
-instance instAdd : Add PolyHistory := ⟨.add⟩
+instance instAdd : Add PH[F] := ⟨.add⟩
 
-protected def sub : PolyHistory → PolyHistory → PolyHistory
+protected def sub : PH[F] → PH[F] → PH[F]
   | .zero, h₂ => .scalarMul (-1) h₂
   | h₁, .zero => h₁
   | h₁, h₂ => .subHist h₁ h₂
 
-instance instSub : Sub PolyHistory := ⟨.sub⟩
+instance instSub : Sub PH[F] := ⟨.sub⟩
 
-def scmul : Rat → PolyHistory → PolyHistory
+def scmul : F → PH[F] → PH[F]
   | _, .zero => .zero
   | c, h =>
     if c = 1 then h
     else if c = -1 then pushNeg h
     else .scalarMul c h
 
-instance instScMul : HMul Rat PolyHistory PolyHistory := ⟨scmul⟩
+instance instScMul : HMul F PH[F] PH[F] := ⟨scmul⟩
 
 end PolyHistory
 
@@ -374,14 +372,17 @@ namespace HPoly
 
 open Poly
 
-def toString (p : HPoly) : String :=
+variable {F : Type u} [Field F] [DecidableEq F]
+
+
+def toString [ToString F] (p : HP[F]) : String :=
   let ⟨p, h⟩ := p
   s!"⟪{p}, {h}⟫"
-instance instToString : ToString HPoly := ⟨toString⟩
+instance instToString [ToString F] : ToString HP[F] := ⟨toString⟩
 
 -- Returns `true` if the criterion means that we should check the `(i, j)` pair
 -- In other words, if for all `l`, the leading term doesn't divide the `lcm`
-def secondCriterion (basis : Array HPoly) (i j : Nat) (lcm : Monomial)
+def secondCriterion (basis : Array HP[F]) (i j : Nat) (lcm : Monomial)
     (hj : j < basis.size) : Bool :=
   /- Buchberger's second criterion is to run over all pairs (i, l) and (j, l)
      that we have already visited in buchberger's algorithm and check that
@@ -402,7 +403,7 @@ def secondCriterion (basis : Array HPoly) (i j : Nat) (lcm : Monomial)
 
 -- Divides by the leading coefficient across the whole polynomial.
 -- This makes the leading coefficient 1.
-def normalize (p : HPoly) : HPoly :=
+def normalize (p : HP[F]) : HP[F] :=
   let ⟨p, pHist⟩ := p
   if p = 0 then ⟨p, pHist⟩ else
   let leadingCoeff := p.leadingTerm.coeff
@@ -417,8 +418,8 @@ def normalize (p : HPoly) : HPoly :=
 
   The caller must ensure that neither `basis[i]` nor `basis[j]` is 0.
 -/
-def sPoly (basis : Array HPoly) (i j : Nat)
-    (hi : i < basis.size) (hj : j < basis.size) (cmp : MOrder) : Option HPoly :=
+def sPoly (basis : Array HP[F]) (i j : Nat)
+    (hi : i < basis.size) (hj : j < basis.size) (cmp : MOrder) : Option HP[F] :=
 
   let ⟨f, fHist⟩ := basis[i]
   let ⟨g, gHist⟩ := basis[j]
@@ -430,13 +431,9 @@ def sPoly (basis : Array HPoly) (i j : Nat)
   | none => none
   | some lcm =>
     if secondCriterion basis i j lcm hj then
-      dbg_trace s!"lcm is {lcm} for {ltf.monomial} and {ltg.monomial}"
       -- The LCM is always divisible by the leading terms
       let qf := MTerm.div! lcm ltf
       let qg := MTerm.div! lcm ltg
-
-      dbg_trace s!"sPoly f hist has {qf} ({qf.monomial} {qf.monomial.size} {qf.coeff}) and {f}"
-      dbg_trace s!"sPoly g hist has {qg} and {g}"
 
       let left := qf * f
       let leftHist := .termMul qf fHist
@@ -446,18 +443,15 @@ def sPoly (basis : Array HPoly) (i j : Nat)
 
       let sp := Poly.sub (qf * f) (qg * g) cmp
       let hist := leftHist - rightHist
-
-      dbg_trace s!"Combined history is {hist}"
-
       some <| HPoly.mk sp hist
     else
       none
 
-partial def divPolysUpTo (p : HPoly) (ps : Array HPoly) (n : Nat) (hn : n ≤ ps.size)
-    (cmp : MOrder := Monomial.grevlexOrder) : (Array HPoly × HPoly) :=
+partial def divPolysUpTo (p : HP[F]) (ps : Array HP[F]) (n : Nat) (hn : n ≤ ps.size)
+    (cmp : MOrder := Monomial.grevlexOrder) : (Array HP[F] × HP[F]) :=
   let ⟨pp, pHist⟩ := p
-  let rec loop (p : Poly) (r : Poly) (qs : Array HPoly)
-      (hqs : qs.size = ps.size) : (Array HPoly × HPoly) :=
+  let rec loop (p r : Poly F) (qs : Array HP[F])
+      (hqs : qs.size = ps.size) : (Array HP[F] × HP[F]) :=
     if p = 0 then
       -- Construct the history for the remainder
       --    p = q * (basis) + rem  <===>  rem = p - q * (basis)
@@ -475,7 +469,6 @@ partial def divPolysUpTo (p : HPoly) (ps : Array HPoly) (n : Nat) (hn : n ≤ ps
         match ltp.div? lti with
         | none => innerLoop (i + 1)
         | some qt =>
-          dbg_trace s!"Got a leading term division for {pi} and {p}"
           -- Calculate the "quotient part" we subtract from `p`
           let qt_mul_pi := qt * pi
           let qt_mul_pi_hist := .termMul qt piHist
@@ -503,7 +496,7 @@ partial def divPolysUpTo (p : HPoly) (ps : Array HPoly) (n : Nat) (hn : n ≤ ps
 /--
   Divides polynomial `p` by the list `ps`.
 
-  During division, we construct an array of `HPoly`s, but instead of
+  During division, we construct an array of `HP[F]`s, but instead of
   pairing the quotients with their histories, the histories instead
   represent `qi * ps[i]`, and is built as the division continues.
 
@@ -511,13 +504,13 @@ partial def divPolysUpTo (p : HPoly) (ps : Array HPoly) (n : Nat) (hn : n ≤ ps
   `p`'s history from the sum of quotient histories. This eliminates
   the need of doing polynomial multiplication.
 -/
-partial def divPolys (p : HPoly) (ps : Array HPoly)
-    (cmp : MOrder := Monomial.grevlexOrder) : (Array HPoly × HPoly) :=
+partial def divPolys (p : HP[F]) (ps : Array HP[F])
+    (cmp : MOrder := Monomial.grevlexOrder) : (Array HP[F] × HP[F]) :=
   divPolysUpTo p ps ps.size (Nat.le_refl _) cmp
 
 -- Minimize the basis, but keep the history of new derived polynomials
-def minimizeBasis (ps : Array HPoly) : Array HPoly :=
-  let rec loop (i : Nat) (minBasis : Array HPoly) : Array HPoly :=
+def minimizeBasis (ps : Array HP[F]) : Array HP[F] :=
+  let rec loop (i : Nat) (minBasis : Array HP[F]) : Array HP[F] :=
     if hi : i < ps.size then
       let ⟨pi, piHist⟩ := ps[i]
       let lti := pi.leadingTerm
@@ -541,17 +534,16 @@ def minimizeBasis (ps : Array HPoly) : Array HPoly :=
 
   loop 0 #[]
 
-partial def buchbergers (ps : Array Poly) (cmp : MOrder := Monomial.grevlexOrder) : Array HPoly :=
+partial def buchbergers (ps : Array P[F]) (cmp : MOrder := Monomial.grevlexOrder) : Array HP[F] :=
   -- Transform polynomials into history annotated ones
-  let hPolys : Array HPoly := ps.mapIdx (λ i p => HPoly.mk p (.basis i)) |>.map normalize
+  let hPolys : Array HP[F] := ps.mapIdx (λ i p => HPoly.mk p (.basis i)) |>.map normalize
 
-  let rec loop (i j checked len : Nat) (hij : i < j) (basis : Array HPoly) (h_len : len ≤ basis.size) :=
+  let rec loop (i j checked len : Nat) (hij : i < j) (basis : Array HP[F]) (h_len : len ≤ basis.size) :=
     if hi : i < len then
       if hj : j < len then
         match sPoly basis i j (by omega) (by omega) cmp with
         | none => loop i (j + 1) checked len (by omega) basis h_len
         | some ⟨s, sHist⟩ =>
-          dbg_trace s!"div-ing (hpoly) {s} {sHist}"
           match divPolysUpTo ⟨s, sHist⟩ basis len h_len cmp with
           | (qs, ⟨rem, remHist⟩) =>
             if rem ≠ 0 then
@@ -577,13 +569,13 @@ partial def buchbergers (ps : Array Poly) (cmp : MOrder := Monomial.grevlexOrder
   let basisRes := loop 0 1 0 0 (by omega) hPolys (Nat.zero_le _)
   minimizeBasis basisRes
 
-def constructWitness (n : Nat) (h : PolyHistory) (cmp : MOrder) : Array Poly :=
-  let zeros : Array Poly := Array.mkArray n 0
+def constructWitness (n : Nat) (h : PolyHistory F) (cmp : MOrder) : Array P[F] :=
+  let zeros : Array P[F] := Array.mkArray n 0
   have h_zeros : zeros.size = n := by
     simp only [Array.size_mkArray, zeros]
-  let one : Poly := #[MTerm.mk 1 0]
+  let one : P[F] := #[MTerm.mk 1 0]
 
-  let rec loop : PolyHistory → ({ arr : Array Poly // arr.size = n })
+  let rec loop : PolyHistory F → ({ arr : Array P[F] // arr.size = n })
     | .zero => ⟨zeros, h_zeros⟩
 
     | .basis i =>
@@ -597,14 +589,14 @@ def constructWitness (n : Nat) (h : PolyHistory) (cmp : MOrder) : Array Poly :=
     | .scalarMul c h =>
       match loop h with
       | ⟨w, hw⟩ =>
-        let t : MTerm := MTerm.mk c 0
-        let w' : Array Poly := w.map (λ p => t * p)
+        let t : M[F] := MTerm.mk c 0
+        let w' : Array P[F] := w.map (λ p => t * p)
         ⟨w', by simp [w']; exact hw⟩
 
     | .termMul t h =>
       match loop h with
       | ⟨w, hw⟩ =>
-        let w' : Array Poly := w.map (λ p => t * p)
+        let w' : Array P[F] := w.map (λ p => t * p)
         ⟨w', by simp [w']; exact hw⟩
 
     | .addHist h₁ h₂ =>
@@ -628,13 +620,10 @@ def constructWitness (n : Nat) (h : PolyHistory) (cmp : MOrder) : Array Poly :=
 
   Computes the ideal from Buchberger's algorithm.
 -/
-partial def idealMembership (p : Poly) (ps : Array Poly)
-    (cmp : MOrder := Monomial.grevlexOrder) : Option (Array Poly) :=
-  dbg_trace s!"Received poly {p} and basis {ps}"
+partial def idealMembership (p : P[F]) (ps : Array P[F])
+    (cmp : MOrder := Monomial.grevlexOrder) : Option (Array P[F]) :=
   let n := ps.size
   let basis := buchbergers ps
-  let printStr := basis.foldl (init := "[\n") (λ str hp => str ++ s!" {hp},\n")
-  dbg_trace s!"returned basis: {printStr}]"
   let (_, ⟨rem, remHist⟩) := divPolys (HPoly.mk p (.basis n)) basis cmp
   if rem.size = 0 then
     match remHist with
@@ -643,7 +632,6 @@ partial def idealMembership (p : Poly) (ps : Array Poly)
       | .basis n =>
         -- Calculate the Array witness in terms of the basis,
         -- which are themselves historied in terms of the original basis polynomials
-        dbg_trace s!"Rem is zero, history is {h₂}"
         some <| constructWitness n h₂ cmp
       | _ => panic! "LHS of sub isn't right"
     | _ => panic! "Shape of history is wrong for rem of 0"
@@ -652,14 +640,15 @@ partial def idealMembership (p : Poly) (ps : Array Poly)
 
 end HPoly
 
---Received poly x4 and basis #[-x2 * x3 + x1, -x1 * x5 + x4, x2]
+-- Tests whether (x4) is in the basis generated by #[-x2 * x3 + x1, -x1 * x5 + x4, x2]
 
-def p₁ : Poly := #[MTerm.mk (-1) #[0, 1, 1], MTerm.mk 1 #[1]]
-def p₂ : Poly := #[MTerm.mk (-1) #[1, 0, 0, 0, 1], MTerm.mk 1 #[0, 0, 0, 1]]
-def p₃ : Poly := #[MTerm.mk 1 #[0, 1]]
+def p₁ : P[Rat] := #[MTerm.mk (-1) #[0, 1, 1], MTerm.mk 1 #[1]]
+def p₂ : P[Rat] := #[MTerm.mk (-1) #[1, 0, 0, 0, 1], MTerm.mk 1 #[0, 0, 0, 1]]
+def p₃ : P[Rat] := #[MTerm.mk 1 #[0, 1]]
 
-def p : Poly := #[MTerm.mk 1 #[0, 0, 0, 1]]
+def p : P[Rat] := #[MTerm.mk 1 #[0, 0, 0, 1]]
 
---#eval HPoly.idealMembership p #[p₁, p₂, p₃]
+-- Expected output:   some #[x5, 1, x3 * x5]
+#eval HPoly.idealMembership p #[p₁, p₂, p₃]
 
 end VerusLean.Tactic.Modular
