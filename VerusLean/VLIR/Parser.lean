@@ -475,7 +475,7 @@ partial def Decls.fromFile? (path : String) : IO (Except String (List Decl)) := 
   match Decl.fromJson? json default with
   | .ok d st =>
     let fns := st.fns.values.map (Decl.specFn ·)
-    return .ok (d :: fns)
+    return .ok (fns ++ [d])
   | .error e _ => return .error e
 
 /-

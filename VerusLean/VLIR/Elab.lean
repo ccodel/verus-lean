@@ -3,15 +3,15 @@ import Lean.Elab
 
 namespace VerusLean
 
-open Lean Elab Command
+open Lean Elab Command Parser Term
 
-def Ident.toSyntax (i : Ident) : TermElabM Lean.Ident :=
+def Ident.toIdent (i : Ident) : MetaM Lean.Ident :=
   return mkIdent (.mkSimple i)
 
-def Idents.toSyntax (i : Idents) : TermElabM (Array Lean.Ident) :=
-  i.mapM Ident.toSyntax
+def Idents.toIdent (i : Idents) : MetaM (Array Lean.Ident) :=
+  i.mapM Ident.toIdent
 
-def Typ.toSyntax (ty : Typ) : TermElabM Term := do
+def Typ.toTerm (ty : Typ) : MetaM Term := do
   match ty with
   | .Bool => return mkIdent ``_root_.Bool
   | .Int => return mkIdent ``_root_.Int
@@ -22,10 +22,10 @@ def Typ.toSyntax (ty : Typ) : TermElabM Term := do
   | .StrSlice => throwError "StrSlice not supported"
   -- | .ConstInt _ => return mkIdent ``_root_.Int
   | .Array t => do
-    let t ← t.toSyntax
+    let t ← t.toTerm
     `(Array $t)
 
-def Const.toSyntax (c : Const) : TermElabM Term := do
+def Const.toTerm (c : Const) : MetaM Term := do
   match c with
   | Const.Bool b =>
     -- See Lean.Init.Meta, for Quote Bool and mkCIdent
@@ -38,7 +38,7 @@ def Const.toSyntax (c : Const) : TermElabM Term := do
   | Const.Char _ => return mkIdent ``Char
 
 -- CC: TODO figure out how to return just the op?
-def BitwiseOp.toSyntax (b : BitwiseOp) (lhs rhs : Term) : TermElabM Term := do
+def BitwiseOp.toTerm (b : BitwiseOp) (lhs rhs : Term) : MetaM Term := do
   match b with
   | .BitXor  => `($lhs ^^^ $rhs)
   | .BitAnd  => `($lhs &&& $rhs)
@@ -46,7 +46,7 @@ def BitwiseOp.toSyntax (b : BitwiseOp) (lhs rhs : Term) : TermElabM Term := do
   | .Shr _   => `($lhs >>> $rhs)
   | .Shl _ _ => `($lhs <<< $rhs)
 
-def ArithOp.toSyntax (a : ArithOp) (lhs rhs : Term) : TermElabM Term := do
+def ArithOp.toTerm (a : ArithOp) (lhs rhs : Term) : MetaM Term := do
   match a with
   | .Add => `($lhs + $rhs)
   | .Sub => `($lhs - $rhs)
@@ -54,20 +54,20 @@ def ArithOp.toSyntax (a : ArithOp) (lhs rhs : Term) : TermElabM Term := do
   | .EuclideanDiv => `($lhs / $rhs)
   | .EuclideanMod => `($lhs % $rhs)
 
-def InequalityOp.toSyntax (i : InequalityOp) (lhs rhs : Term) : TermElabM Term := do
+def InequalityOp.toTerm (i : InequalityOp) (lhs rhs : Term) : MetaM Term := do
   match i with
   | .Lt => `($lhs < $rhs)
   | .Le => `($lhs ≤ $rhs)
   | .Gt => `($lhs > $rhs)
   | .Ge => `($lhs ≥ $rhs)
 
-def UnaryOp.toSyntax (u : UnaryOp) (e : Term) : TermElabM Term := do
+def UnaryOp.toTerm (u : UnaryOp) (e : Term) : MetaM Term := do
   match u with
   | .Not => `(¬ ($e))
   | .BitNot _ => `(~~~ $e)
   | _ => throwError "unsupported unary op {repr u}"
 
-def BinaryOp.toSyntax (b : BinaryOp) (lhs rhs : Term) : TermElabM Term := do
+def BinaryOp.toTerm (b : BinaryOp) (lhs rhs : Term) : MetaM Term := do
   match b with
   | .And => `($lhs ∧ $rhs)
   | .Or => `($lhs ∨ $rhs)
@@ -75,134 +75,128 @@ def BinaryOp.toSyntax (b : BinaryOp) (lhs rhs : Term) : TermElabM Term := do
   | .Implies => `($lhs → $rhs)
   | .Eq _ => `($lhs = $rhs)
   | .Ne => `($lhs ≠ $rhs)
-  | .Inequality ineq => ineq.toSyntax lhs rhs
-  | .Arith arith _ => arith.toSyntax lhs rhs
-  | .Bitwise bitwise _ => bitwise.toSyntax lhs rhs
+  | .Inequality ineq => ineq.toTerm lhs rhs
+  | .Arith arith _ => arith.toTerm lhs rhs
+  | .Bitwise bitwise _ => bitwise.toTerm lhs rhs
+
+def CallFun.toIdent : CallFun → MetaM (Lean.Ident)
+  | CallFun.Fun i => i.toIdent
 
 mutual
 
-partial def Bind.toSyntax (b : Bind) (t : Term) : TermElabM Term := do
+partial def Bind.toTerm (b : Bind) (t : Term) : MetaM Term := do
   match b with
   | .Let ⟨v, e⟩ =>
-    let v ← v.toSyntax
-    let e ← e.toSyntax
+    let v ← v.toIdent
+    let e ← e.toTerm
     -- See `letMVar` in `Lean.Parser.Term.lean`
     `(let $v := $e; $t)
   | .Quant q vars =>
     match q with
     | .Forall =>
-      let varsForall : TSyntaxArray `Lean.Parser.Term.bracketedBinder ←
-        (vars.toArray.mapM (fun ⟨i, ty⟩ => do
-          let i ← i.toSyntax
-          let ty ← ty.toSyntax
-          `(Lean.Parser.Term.bracketedBinderF| ($i : $ty))
-        ))
+      let varsForall : TSyntaxArray ``bracketedBinder ←
+        vars.toArray.mapM (fun ⟨i, ty⟩ => do
+          let i ← i.toIdent
+          let ty ← ty.toTerm
+          `(bracketedBinderF| ($i : $ty))
+        )
       `(∀ $(varsForall):bracketedBinder*, $t)
-    | .Exists =>
-      match vars with
-      | [] => throwError "empty exists"
-      | ⟨vi, vty⟩ :: vs =>
-        throwError "not yet implemented"
-        /- let i ← vi.toSyntax
-        let ty ← vty.toSyntax
-        --let v : TSyntax `Lean.explicitBinder ← `(Lean.Parser.Term.bracketedBinderF| ($i : $ty))
-        let varsExists : TSyntax `Lean.explicitBinders ←
-          (
-            vars.toArray.foldlM (init := v) (fun ⟨i, ty⟩ => do
-              let i ← i.toSyntax
-              let ty ← ty.toSyntax
-              `(Lean.Parser.Term.bracketedBinderF| ($i : $ty))
-            )
-          )
-        `(∃ $(varsExists), l = [1, 2, 3]) -/
-  | .Lambda vars => throwError "unsupported bind {repr b}"
-    /-let varsLambda : TSyntaxArray `Lean.Parser.Term.funBinder ←
-      (vars.toArray.mapM (fun ⟨i, ty⟩ => do
-        let i ← i.toSyntax
-        let ty ← ty.toSyntax
-        `(Lean.Parser.Term.bracketedBinderF| ($i : $ty))
-      ))
-    --  binders : TSyntaxArray `Lean.Parser.Term.funBinder
-    `(λ $(varsLambda):bracketedBinder*, $t) -/
+    | .Exists => do
+      if [] == vars then
+        throwError "empty exists"
+      let varsExists : TSyntaxArray ``bracketedExplicitBinders ←
+        vars.toArray.mapM (fun ⟨i, ty⟩ => do
+          let i ← i.toIdent
+          let ty ← ty.toTerm
+          `(bracketedExplicitBinders| ($i:ident : $ty))
+        )
+      `(∃ $(varsExists):bracketedExplicitBinders*, $t)
+  | .Lambda vars =>
+    let varsLambda : TSyntaxArray ``funBinder ←
+      vars.toArray.mapM (fun ⟨i, ty⟩ => do
+        let i ← i.toIdent
+        let ty ← ty.toTerm
+        `(funBinder| ($i : $ty))
+      )
+    `(fun $(varsLambda):funBinder* => $t)
 
-partial def Exp.toSyntax (e : Exp) : TermElabM Term := do
+partial def Exp.toTerm (e : Exp) : MetaM Term := do
   match e with
-  | .Const c => c.toSyntax
-  | .Var ident => ident.toSyntax
+  | .Const c => c.toTerm
+  | .Var i => i.toIdent
   | .Unary op e =>
-    let e ← e.toSyntax
-    op.toSyntax e
+    let e ← e.toTerm
+    op.toTerm e
   | .Binary op lhs rhs =>
-    let lhs ← lhs.toSyntax
-    let rhs ← rhs.toSyntax
-    op.toSyntax lhs rhs
+    let lhs ← lhs.toTerm
+    let rhs ← rhs.toTerm
+    op.toTerm lhs rhs
   | .If cond b₁ b₂ =>
-    let cond ← cond.toSyntax
-    let b₁ ← b₁.toSyntax
-    let b₂ ← b₂.toSyntax
+    let cond ← cond.toTerm
+    let b₁ ← b₁.toTerm
+    let b₂ ← b₂.toTerm
     `(if $cond then $b₁ else $b₂)
   | .Bind bind exp =>
-    let exp ← exp.toSyntax
-    bind.toSyntax exp
+    let exp ← exp.toTerm
+    bind.toTerm exp
   | .Call fn _ exps =>
-    let fn := ← match fn with
-      | CallFun.Fun fn => fn.toSyntax
-    -- let typs ← typs.mapM Typ.toSyntax
-    let exps ← exps.mapM Exp.toSyntax
-    let exps_TSepArray := exps.foldl Syntax.TSepArray.push (Syntax.TSepArray.mk #[] (sep := ","))
-    dbg_trace s!"elab get here!! {fn}, {exps}"
-    -- let termSyntaxList := exps.map (·.raw)
-    `($fn ([$exps_TSepArray,*]))
+    let fnIdent ← fn.toIdent
+    let fn ← `(term| $fnIdent)
+    exps.foldlM (init := fn) (fun acc e => do
+      let t ← e.toTerm
+      `($acc:term $t:term)
+    )
+    -- let exps ← exps.mapM Exp.toTerm
+    -- exps.foldlM (init := fnTerm)
+    -- let exps_TSepArray : TSyntax `term := exps.foldl Syntax.TSepArray.push (Syntax.TSepArray.mk #[] (sep := ","))
+    -- `(app| $fn $exps_TSepArray)
 
   -- | .ArrayLiteral es =>
-  --   let es ← es.mapM Exp.toSyntax
+  --   let es ← es.mapM Exp.toTerm
   --   `(#[ $es,* ])
 
 end /- mutual -/
 
-def Exps.toSyntax (e : Exps) : TermElabM (Array Term) := do
-  e.mapM Exp.toSyntax
+def Exps.toTerm (e : Exps) : MetaM (Array Term) := do
+  e.mapM Exp.toTerm
 
--- CC: Just use TSyntax `command?
-def Decl.toSyntax (d : Decl) : CommandElabM (TSyntaxArray `command) := do
+def Decl.toTerm (d : Decl) : MetaM (TSyntax `command) := do
   match d with
   | .assertion a =>
-    let ident ← liftTermElabM a.name.toSyntax
+    let ident ← a.name.toIdent
     let args : TSyntaxArray ``Lean.Parser.Term.bracketedBinder ←
-      liftTermElabM (
+      (
         a.decls.toArray.mapM (fun (i, ty) => do
-          let i ← i.toSyntax
-          let ty ← ty.toSyntax
+          let i ← i.toIdent
+          let ty ← ty.toTerm
           `(Lean.Parser.Term.bracketedBinderF| ($i : $ty))
         )
       )
-    let eTerm : Term ← liftTermElabM a.body.toSyntax
+    let eTerm : Term ← a.body.toTerm
     let c ← `(command|
       theorem $ident $(args):bracketedBinder*
         : $eTerm
         := by sorry
     )
-    return #[c]
+    return c
   | .specFn f =>
-  -- syntax: def add_one (x : Int) : Int := x + 1
-    let ident ← liftTermElabM f.name.toSyntax
+    let ident ← f.name.toIdent
     let args : TSyntaxArray ``Lean.Parser.Term.bracketedBinder ←
-      liftTermElabM (
+      (
         f.inputs.toArray.mapM (fun (i, ty) => do
-          let i ← i.toSyntax
-          let ty ← ty.toSyntax
+          let i ← i.toIdent
+          let ty ← ty.toTerm
           `(Lean.Parser.Term.bracketedBinderF| ($i : $ty))
         )
       )
-    let returnType : Term ← liftTermElabM f.returnType.toSyntax
-    let body : Term ← liftTermElabM f.body.toSyntax
+    let returnType : Term ← f.returnType.toTerm
+    let body : Term ← f.body.toTerm
     dbg_trace s!"Commanding a spec function {ident} {body}"
     let c ← `(command|
       def $ident $(args):bracketedBinder*
         : $returnType
         := $body
     )
-    -- dbg_trace s!"get to toSyntax {c}"
-    return #[c]
+    return c
 
 end VerusLean

@@ -36,8 +36,6 @@ def genFromDir (dirPath : String) : IO String := do
 
   return str -/
 
-#check addDecl
-
 unsafe def genFromDir' (dirPath : String) : IO String := do
   -- For each file in the directory
   let files ← System.FilePath.walkDir dirPath
@@ -47,20 +45,13 @@ unsafe def genFromDir' (dirPath : String) : IO String := do
     match res with
     | .ok decls => do
       --let mut res := str
+      match ← Decl.toFormat decls with
+      | .ok s => return str ++ s
+      | .error e => do
+        dbg_trace e
+        let str := str ++ s!"-- The JSON at {entry} failed to generate\n\n"
+        return str
 
-      let res ← decls.foldrM (init := str) (fun d res => do
-        let fmt ← d.toFormat
-        dbg_trace s!"Adding formatted {fmt}"
-        return res ++ fmt ++ "\n\n"
-      )
-
-      -- for debugging purpose, avoid segfault: function expected at add_one
-      --let d := decls.get! 0
-      --let fmt ← d.toFormat
-      --res := res ++ fmt ++ "\n\n"
-
-      return res
-      -- return str ++ fmt ++ "\n\n"
     | .error e => do
       dbg_trace e
       let str := str ++ s!"-- The JSON at {entry} failed to generate\n\n"

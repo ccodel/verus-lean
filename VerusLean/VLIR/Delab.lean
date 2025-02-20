@@ -126,7 +126,8 @@ end /- mutual -/
 def Exp.toTheoremString (e : Exp) (name : String := "verus_thm") (decls : String := "") : String :=
   "theorem " ++ name ++ " " ++ decls ++ ": " ++ Exp.pp e ++ " := by sorry\n\n"
 
-unsafe def Decl.toFormat (d : Decl) : IO String := do
+-- Get some state (like a list of declarations in order to be processed)
+unsafe def Decl.toFormat (ds : List Decl) : IO (Except String String) := do
   searchPathRef.set compile_time_search_path%
   let res : Except Exception Format ← Lean.withImportModules
     (imports := #[{ module := `Init : Import }])
@@ -143,26 +144,29 @@ unsafe def Decl.toFormat (d : Decl) : IO String := do
         })
         (do
           try
-            -- dbg_trace "Delaborating"
-            let syns ← Lean.liftCommandElabM d.toSyntax
-            -- dbg_trace "Performing typechecking"
-            for syn in syns do
-              -- dbg_trace s!"{syn}"
-              Lean.liftCommandElabM <| Elab.Command.elabCommandTopLevel syn
-            -- dbg_trace "Formatting"
+            -- NB: We lift into the `CommandElabM` monad once to avoid issues that arise running it multiple times
+            --     (These issues are claimed by Wojciech)
+            let syns : List (TSyntax `command) ← ds.mapM (·.toTerm.run')
+            let _ ← Lean.liftCommandElabM <| syns.mapM (fun syn => do
+              Elab.Command.elabCommandTopLevel syn.raw
+            )
+
+            -- Now ask Lean for a pretty-printed version of the command syntax
+            -- Note that this does not depend on the commands being valid,
+            -- but asking Lean to double-check this for us can be helpful
             let mut fmt : Format := ""
             for syn in syns do
               fmt := fmt ++ .line ++ (
                 ← Lean.PrettyPrinter.format (Formatter.categoryFormatter `command) syn
-              )
-            return fmt
+              ) ++ "\n"
+            return fmt ++ "\n"
           catch e =>
             dbg_trace s!"{← e.toMessageData.toString}"
             throw e
         )
     )
   match res with
-  | .error _ => return "bad syntax"
-  | .ok res => return Std.Format.pretty res
+  | .error _ => return throw "bad syntax"
+  | .ok res => return (return Std.Format.pretty res)
 
 end VerusLean
