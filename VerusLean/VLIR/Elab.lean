@@ -65,6 +65,7 @@ def UnaryOp.toTerm (u : UnaryOp) (e : Term) : MetaM Term := do
   match u with
   | .Not => `(¬ ($e))
   | .BitNot _ => `(~~~ $e)
+  | .Trigger => `($e)
   | _ => throwError "unsupported unary op {repr u}"
 
 def BinaryOp.toTerm (b : BinaryOp) (lhs rhs : Term) : MetaM Term := do
@@ -144,7 +145,7 @@ partial def Exp.toTerm (e : Exp) : MetaM Term := do
     let fn ← `(term| $fnIdent)
     exps.foldlM (init := fn) (fun acc e => do
       let t ← e.toTerm
-      `($acc:term $t:term)
+      `($acc:term ($t:term))
     )
     -- let exps ← exps.mapM Exp.toTerm
     -- exps.foldlM (init := fnTerm)
@@ -191,7 +192,7 @@ def Decl.toTerm (d : Decl) : MetaM (TSyntax `command) := do
       )
     let returnType : Term ← f.returnType.toTerm
     let body : Term ← f.body.toTerm
-    dbg_trace s!"Commanding a spec function {ident} {body}"
+    -- dbg_trace s!"Commanding a spec function {ident} {body}"
     let c ← `(command|
       def $ident $(args):bracketedBinder*
         : $returnType

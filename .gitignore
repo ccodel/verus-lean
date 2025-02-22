@@ -2,3 +2,5 @@
 **/vir.json
 .direnv/
 .DS_Store
+testJSON/*
+testJSON.lean

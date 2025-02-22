@@ -119,9 +119,6 @@ def Typ.fromJson? (j : Json) : ExStr Typ := do
       -- .ok (Typ.Array Typ.Int)
       | some _ => throw "unsupported primitive type"
       | none => throw s!"error, json: {obj}"
-      -- match Typ.fromJson? t with
-        -- | .ok Typ.Bool => .ok Typ.Bool
-        -- | .error e => throw s!"[Typ.fromJson? 3]: {e}"
 
     | ("Int", obj) =>
       -- First, we check if the the underlying string is "Int" for mathematical integers
@@ -159,9 +156,6 @@ def fromJsonSpanned? {α : Type} (j : Json) (fj : Json → VParser α) : VParser
 
 def xJsonFromSpanned? (j : Json) : ExStr Json :=
   j.getObjVal? "x"
-
-def typFromX? (j : Json) : ExStr Typ := do
-  Typ.fromJson? <| ← j.getObjValByPath ["x", "typ"]
 
 def widthFromJson? (j : Json) : ExStr Nat := do
   j.getNatUnderKey? "Width"
@@ -259,9 +253,15 @@ def UnaryOp.fromJson? (j : Json) : ExStr UnaryOp :=
   | .ok s => throw s!"[UnaryOp.fromJson?]: Expected one of \{ Not, BitNot, Clip }, got {s}"
   | .error _ => do
     -- Try seeing if "BitNot" has a width
-    let obj ← j.getObjVal? "BitNot"
-    let width ← widthFromJson? obj
-    return .BitNot width
+    match j.getObjVal? "BitNot" with
+    | .ok obj => do
+      let width ← widthFromJson? obj
+      return .BitNot width
+    | .error _ =>
+      -- Try seeing if it's a trigger
+      match j.getObjVal? "Trigger" with
+      | .error e => throw s!"[UnaryOp.fromJson?]: {e}"
+      | .ok _ => return .Trigger
 
 def BinaryOp.fromJson? (j : Json) : ExStr BinaryOp :=
   -- Most are single strings, but Eq has a mode attached, etc.
@@ -302,19 +302,19 @@ def CallFun.fromJson? (j : Json) : ExStr CallFun := do
   let ⟨arr, _⟩ ← obj.getArrWithSizeGe? 1
   return .Fun (← pathedNameFromJson? arr[0])
 
-def VarBinder.typFromJson? (j : Json) : ExStr (VarBinder Typ) := do
+def Par.fromJson? (j : Json) : ExStr Par := do
   let obj ← j.getObjVal? "name"
   let ⟨arr, _⟩ ← obj.getArrWithSizeGe? 1
   let name ← arr[0].getStr?
-  let typ ← typFromX? j
-  return VarBinder.mk name typ
+  let typ ← Typ.fromJson? <| ← j.getObjVal? "typ"
+  return Par.mk name typ
 
 def VarBinder.typBinderFromJson? (j : Json) : ExStr (VarBinder Typ) := do
   let obj ← j.getObjVal? "name"
   let ⟨arr, _⟩ ← obj.getArrWithSizeGe? 1
   let nameObj := arr[0]
   let (name : String) ← nameObj.getStr?
-  let typ ← Typ.fromJson? (← j.getObjVal? "typ")
+  let typ ← Typ.fromJson? (← j.getObjVal? "a")
   return VarBinder.mk name typ
 
 def VarBinder.typBindersFromJson? (j : Json) : ExStr (List (VarBinder Typ)) := do
@@ -404,19 +404,20 @@ def getSpecFnName? (j : Json) : ExStr String := do
   Json.getStr? <| ← obj.getArrVal? 0
 
 def SpecFn.fromJson? (j : Json) : ExStr SpecFn := do
+  -- Parse the function name
   let name ← getSpecFnName? j
 
   -- Parse the arguments
-  let inputsJson ← j.getObjValByPath ["x", "pars"]
-  let varsArr ← inputsJson.getArr?
-  let vars ← varsArr.foldlM (init := Std.HashMap.empty) (fun m v => do
-    let (var : VarBinder Typ) ← VarBinder.typBinderFromJson? (← xJsonFromSpanned? v)
-    return m.insert (VarBinder.name var) (VarBinder.val var)
+  let varsJson ← (← j.getObjValByPath ["x", "pars"]).getArr?
+  let vars ← varsJson.foldlM (init := Std.HashMap.empty) (fun m v => do
+    let (var : Par) ← Par.fromJson? (← xJsonFromSpanned? v)
+    return m.insert (Par.name var) (Par.typ var)
   )
 
   -- Parse the return type
   let returnTypeJson : Json ← j.getObjValByPath ["x", "ret"]
-  let returnType : Typ ← typFromX? returnTypeJson
+  let (ret : Par) ← Par.fromJson? (← xJsonFromSpanned? returnTypeJson)
+  let returnType : Typ := ret.typ
 
   -- Parse the body as an expression
   let bodyObj : Json ← j.getObjValByPath ["x", "axioms", "spec_axioms", "body_exp"]

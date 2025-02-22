@@ -137,6 +137,7 @@ inductive UnaryOp where
   InferSpecForLoopIter { print_hint: Bool }, // loops?
   CastToInteger, // coercion after casting to an integer (type argument?)
   -/
+  | Trigger
 deriving Repr, Inhabited, DecidableEq
 
 /--
@@ -187,6 +188,11 @@ deriving Repr, Inhabited
 structure VarBinder (ty : Type u) where
   name : Ident
   val : ty
+deriving Repr, Inhabited, DecidableEq
+
+structure Par where
+  name : Ident
+  typ : Typ
 deriving Repr, Inhabited, DecidableEq
 
 mutual
