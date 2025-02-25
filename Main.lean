@@ -40,25 +40,39 @@ unsafe def genFromDir' (dirPath : String) : IO String := do
   -- For each file in the directory
   let files ← System.FilePath.walkDir dirPath
   let files := files.insertionSort (fun a b => a.toString < b.toString)
-  let str ← files.foldlM (init := "") (fun str entry => do
+  let fmap : FMap := Std.HashMap.empty
+
+  let (fmap, str) ← files.foldlM (init := (fmap, "")) (fun (fmap, str) entry => do
     let res ← Decls.fromFile? entry.toString
     match res with
     | .ok decls => do
-      --let mut res := str
-      match ← Decl.toFormat decls with
-      | .ok s => return str ++ s
+      let fmap ← decls.foldlM (init := fmap) (fun fmap decl => do
+        match decl with
+        | Decl.specFn f => do
+          -- dbg_trace s!"add {f.name} to fMap"
+          return fmap.insert f.name f
+        | _ => return fmap
+      )
+      match ← Decl.toFormat decls false with
+      | .ok s => return (fmap, str ++ s)
       | .error e => do
         dbg_trace e
         let str := str ++ s!"-- The JSON at {entry} failed to generate\n\n"
-        return str
+        return (fmap, str)
 
     | .error e => do
       dbg_trace e
       let str := str ++ s!"-- The JSON at {entry} failed to generate\n\n"
-      return str
+      return (fmap, str)
   )
 
-  return str
+  let specFns : List Decl := fmap.fold (init := []) (fun acc _ v => Decl.specFn v :: acc)
+  match ← Decl.toFormat specFns true with
+  | .ok s => return s ++ str
+  | .error e => do
+    dbg_trace e
+    let str := s!"-- specFn failed to generate\n\n" ++ str
+    return str
 
 unsafe def main : List String → IO Unit
   | [path] => do

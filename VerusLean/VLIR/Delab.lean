@@ -127,7 +127,7 @@ def Exp.toTheoremString (e : Exp) (name : String := "verus_thm") (decls : String
   "theorem " ++ name ++ " " ++ decls ++ ": " ++ Exp.pp e ++ " := by sorry\n\n"
 
 -- Get some state (like a list of declarations in order to be processed)
-unsafe def Decl.toFormat (ds : List Decl) : IO (Except String String) := do
+unsafe def Decl.toFormat (ds : List Decl) (printSpecFn : Bool) : IO (Except String String) := do
   searchPathRef.set compile_time_search_path%
   let res : Except Exception Format ← Lean.withImportModules
     (imports := #[{ module := `Init : Import }])
@@ -146,20 +146,37 @@ unsafe def Decl.toFormat (ds : List Decl) : IO (Except String String) := do
           try
             -- NB: We lift into the `CommandElabM` monad once to avoid issues that arise running it multiple times
             --     (These issues are claimed by Wojciech)
-            let syns : List (TSyntax `command) ← ds.mapM (·.toTerm.run')
-            let _ ← Lean.liftCommandElabM <| syns.mapM (fun syn => do
-              Elab.Command.elabCommandTopLevel syn.raw
-            )
+            if printSpecFn then
+              let mut fmt : Format := ""
+              let syns : List (TSyntax `command) ← ds.mapM (·.toTerm.run')
+              for syn in syns do
+                fmt := fmt ++ .line ++ (
+                  ← Lean.PrettyPrinter.format (Formatter.categoryFormatter `command) syn
+                ) ++ "\n"
+              return fmt ++ "\n"
+            else
+              let syns : List (TSyntax `command) ← ds.mapM (·.toTerm.run')
+              let _ ← Lean.liftCommandElabM <| syns.mapM (fun syn => do
+                Elab.Command.elabCommandTopLevel syn.raw
+              )
 
-            -- Now ask Lean for a pretty-printed version of the command syntax
-            -- Note that this does not depend on the commands being valid,
-            -- but asking Lean to double-check this for us can be helpful
-            let mut fmt : Format := ""
-            for syn in syns do
-              fmt := fmt ++ .line ++ (
-                ← Lean.PrettyPrinter.format (Formatter.categoryFormatter `command) syn
-              ) ++ "\n"
-            return fmt ++ "\n"
+              -- Now ask Lean for a pretty-printed version of the command syntax
+              -- Note that this does not depend on the commands being valid,
+              -- but asking Lean to double-check this for us can be helpful
+              let mut fmt : Format := ""
+              let isAssert : List Bool := ds.map (fun d =>
+                match d with
+                | Decl.assertion _ => true
+                | _ => false
+              )
+              let assertSyns := syns.zip isAssert
+                |>.filter (fun (_, a) => a)
+                |>.map Prod.fst
+              for syn in assertSyns do
+                fmt := fmt ++ .line ++ (
+                  ← Lean.PrettyPrinter.format (Formatter.categoryFormatter `command) syn
+                ) ++ "\n"
+              return fmt ++ "\n"
           catch e =>
             dbg_trace s!"{← e.toMessageData.toString}"
             throw e
