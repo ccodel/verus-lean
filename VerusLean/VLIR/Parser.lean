@@ -7,8 +7,11 @@ namespace VerusLean
 
 open Lean
 
-abbrev VMap := Std.HashMap Ident Typ
-abbrev FMap := Std.HashMap Ident SpecFn
+/-- A map for variables. Alias for `Std.HashMap Ident Typ`. -/
+abbrev VarMap := Std.HashMap Ident Typ
+
+/-- A map for functions. Alias for `Std.HashMap Ident SpecFn`. -/
+abbrev FnMap := Std.HashMap Ident SpecFn
 
 /--
   The parsing monad for Verus JSONs,
@@ -23,10 +26,10 @@ abbrev FMap := Std.HashMap Ident SpecFn
 -/
 structure ParserState where
   expectedType : Typ := .Bool
-  freeVars : VMap := {}
+  freeVars : VarMap := {}
   -- Acts like a stack?
   boundVars : List Ident := []
-  fns : FMap := {}
+  fns : FnMap := {}
 deriving Inhabited
 
 abbrev VParser := EStateM String ParserState
@@ -44,7 +47,7 @@ def getTyp : VParser Typ :=
 def setTyp (t : Typ) : VParser Unit :=
   modify fun st => { st with expectedType := t }
 
-def getFreeVars : VParser VMap :=
+def getFreeVars : VParser VarMap :=
   do let st ← get; return st.freeVars
 
 def getBoundVars : VParser (List Ident) :=
@@ -87,7 +90,7 @@ def withBoundVars (vars : List Ident) (fn : VParser α) : VParser α := do
 def addSpecFn (fn : SpecFn) : VParser Unit :=
   modify fun st => { st with fns := st.fns.insert fn.name fn }
 
-def setFns (fns : FMap) : VParser Unit :=
+def setFns (fns : FnMap) : VParser Unit :=
   modify fun st => { st with fns := fns }
 
 def coeWithState : Except String α → VParser α
@@ -245,23 +248,20 @@ def InequalityOp.fromJson? (j : Json) : ExStr InequalityOp := do
   | "Gt" => return .Gt
   | s => throw s!"[InequalityOp.fromJson?]: Expected one of \{ Le, Ge, Lt, Gt }, got {s}"
 
-def UnaryOp.fromJson? (j : Json) : ExStr UnaryOp :=
+def UnaryOp.fromJson? (j : Json) : ExStr UnaryOp := do
   match j.getStr? with
   | .ok "Not"    => return .Not
   | .ok "BitNot" => throw "not yet implemented"
   | .ok "Clip"   => throw "not yet implemented"
   | .ok s => throw s!"[UnaryOp.fromJson?]: Expected one of \{ Not, BitNot, Clip }, got {s}"
-  | .error _ => do
+  | .error _ =>
     -- Try seeing if "BitNot" has a width
-    match j.getObjVal? "BitNot" with
-    | .ok obj => do
+    match ← j["BitNot", "Trigger"] with
+    | ("BitNot", obj) =>
       let width ← widthFromJson? obj
       return .BitNot width
-    | .error _ =>
-      -- Try seeing if it's a trigger
-      match j.getObjVal? "Trigger" with
-      | .error e => throw s!"[UnaryOp.fromJson?]: {e}"
-      | .ok _ => return .Trigger
+    | ("Trigger", _) => return .Trigger
+    | _ => throw s!"[UnaryOp.fromJson?]: Expected one of \{ BitNot, Trigger }, got {j}"
 
 def BinaryOp.fromJson? (j : Json) : ExStr BinaryOp :=
   -- Most are single strings, but Eq has a mode attached, etc.
@@ -300,26 +300,26 @@ def Quant.fromJson? (j : Json) : ExStr Quant := do
 def CallFun.fromJson? (j : Json) : ExStr CallFun := do
   let obj ← j.getObjVal? "Fun"
   let ⟨arr, _⟩ ← obj.getArrWithSizeGe? 1
-  return .Fun (← pathedNameFromJson? arr[0])
+  return .Fun <| ← pathedNameFromJson? arr[0]
 
-def Par.fromJson? (j : Json) : ExStr Par := do
+def VarBinder.fromJson? (j : Json) : ExStr (VarBinder Typ) := do
   let obj ← j.getObjVal? "name"
   let ⟨arr, _⟩ ← obj.getArrWithSizeGe? 1
   let name ← arr[0].getStr?
   let typ ← Typ.fromJson? <| ← j.getObjVal? "typ"
-  return Par.mk name typ
+  return VarBinder.mk name typ
 
-def VarBinder.typBinderFromJson? (j : Json) : ExStr (VarBinder Typ) := do
+def VarBinder.fromJsonForBind? (j : Json) : ExStr (VarBinder Typ) := do
+  dbg_trace s!"Getting varbinder from {j}"
   let obj ← j.getObjVal? "name"
   let ⟨arr, _⟩ ← obj.getArrWithSizeGe? 1
-  let nameObj := arr[0]
-  let (name : String) ← nameObj.getStr?
-  let typ ← Typ.fromJson? (← j.getObjVal? "a")
+  let (name : String) ← arr[0].getStr?
+  let typ ← Typ.fromJson? <| ← j.getObjVal? "a"
   return VarBinder.mk name typ
 
 def VarBinder.typBindersFromJson? (j : Json) : ExStr (List (VarBinder Typ)) := do
   let (arr : _root_.Array Json) ← j.getArr?
-  arr.toList.mapM VarBinder.typBinderFromJson?
+  arr.toList.mapM VarBinder.fromJsonForBind?
 
 mutual /- {Bind, Exp}.fromJson? -/
 
@@ -392,7 +392,7 @@ end /- mutual -/
 
 --------------------------------------------------------------------------------
 
-/-partial def Exp.fromFile? (path : String) : IO (Except String (Exp × VMap)) := do
+/-partial def Exp.fromFile? (path : String) : IO (Except String (Exp × VarMap)) := do
   let jsonStr ← IO.FS.readFile path
   let json ← IO.ofExcept <| Json.parse jsonStr
   match Exp.fromJson? json with
@@ -410,14 +410,14 @@ def SpecFn.fromJson? (j : Json) : ExStr SpecFn := do
   -- Parse the arguments
   let varsJson ← (← j.getObjValByPath ["x", "pars"]).getArr?
   let vars ← varsJson.foldlM (init := Std.HashMap.empty) (fun m v => do
-    let (var : Par) ← Par.fromJson? (← xJsonFromSpanned? v)
-    return m.insert (Par.name var) (Par.typ var)
+    let var ← VarBinder.fromJson? (← xJsonFromSpanned? v)
+    return m.insert var.name var.val
   )
 
   -- Parse the return type
   let returnTypeJson : Json ← j.getObjValByPath ["x", "ret"]
-  let (ret : Par) ← Par.fromJson? (← xJsonFromSpanned? returnTypeJson)
-  let returnType : Typ := ret.typ
+  let ret ← VarBinder.fromJson? (← xJsonFromSpanned? returnTypeJson)
+  let returnType : Typ := ret.val
 
   -- Parse the body as an expression
   let bodyObj : Json ← j.getObjValByPath ["x", "axioms", "spec_axioms", "body_exp"]

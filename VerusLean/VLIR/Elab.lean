@@ -65,7 +65,7 @@ def UnaryOp.toTerm (u : UnaryOp) (e : Term) : MetaM Term := do
   match u with
   | .Not => `(¬ ($e))
   | .BitNot _ => `(~~~ $e)
-  | .Trigger => `($e)
+  | .Trigger => `($e) -- Ignore trigger information when constructing terms
   | _ => throwError "unsupported unary op {repr u}"
 
 def BinaryOp.toTerm (b : BinaryOp) (lhs rhs : Term) : MetaM Term := do
@@ -85,6 +85,19 @@ def CallFun.toIdent : CallFun → MetaM (Lean.Ident)
 
 mutual
 
+/--
+  Constructs a Lean meta-`Term` associated with a `Bind`.
+
+  In Verus, `Bind`s only store the names and types of the fresh variables
+  (and the binding expression for `let`s). However, Lean expects binding
+  terms to have their body expressions as well. Thus, this function
+  expects the term `t` asosciated with the body expression after the bind.
+  For example, `∀ (x : Int), x ≠ x + 1` would have a `Bind`
+  representing `∀ (x : Int)`, and `t` would represent `x ≠ x + 1`.
+
+  Because `Let` has an `Exp`, `Bind.toTerm` is mutually recursive
+  with `Exp.toTerm`.
+-/
 partial def Bind.toTerm (b : Bind) (t : Term) : MetaM Term := do
   match b with
   | .Let ⟨v, e⟩ =>
@@ -145,21 +158,15 @@ partial def Exp.toTerm (e : Exp) : MetaM Term := do
     let fn ← `(term| $fnIdent)
     exps.foldlM (init := fn) (fun acc e => do
       let t ← e.toTerm
-      `($acc:term ($t:term))
+      -- Only include parentheses if the term is nontrivial
+      -- (i.e., not a variable or a constant)
+      if e.height = 1 then
+        `($acc:term $t:term)
+      else
+        `($acc:term ($t:term))
     )
-    -- let exps ← exps.mapM Exp.toTerm
-    -- exps.foldlM (init := fnTerm)
-    -- let exps_TSepArray : TSyntax `term := exps.foldl Syntax.TSepArray.push (Syntax.TSepArray.mk #[] (sep := ","))
-    -- `(app| $fn $exps_TSepArray)
-
-  -- | .ArrayLiteral es =>
-  --   let es ← es.mapM Exp.toTerm
-  --   `(#[ $es,* ])
 
 end /- mutual -/
-
-def Exps.toTerm (e : Exps) : MetaM (Array Term) := do
-  e.mapM Exp.toTerm
 
 def Decl.toTerm (d : Decl) : MetaM (TSyntax `command) := do
   match d with
@@ -175,9 +182,7 @@ def Decl.toTerm (d : Decl) : MetaM (TSyntax `command) := do
       )
     let eTerm : Term ← a.body.toTerm
     let c ← `(command|
-      theorem $ident $(args):bracketedBinder*
-        : $eTerm
-        := by sorry
+      theorem $ident $(args):bracketedBinder* : $eTerm := by sorry
     )
     return c
   | .specFn f =>
@@ -192,11 +197,8 @@ def Decl.toTerm (d : Decl) : MetaM (TSyntax `command) := do
       )
     let returnType : Term ← f.returnType.toTerm
     let body : Term ← f.body.toTerm
-    -- dbg_trace s!"Commanding a spec function {ident} {body}"
     let c ← `(command|
-      def $ident $(args):bracketedBinder*
-        : $returnType
-        := $body
+      def $ident $(args):bracketedBinder* : $returnType := $body
     )
     return c
 

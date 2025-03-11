@@ -137,6 +137,18 @@ inductive UnaryOp where
   InferSpecForLoopIter { print_hint: Bool }, // loops?
   CastToInteger, // coercion after casting to an integer (type argument?)
   -/
+  /--
+    Quantifier trigger annotations, used to guide SMT solvers.
+
+    Note: These are largely ignored by Lean. We keep them, though, for two
+    reasons. First, they simplify parsing, so we don't need to special-case
+    on whether we encounter a trigger or not. Second, if Lean ever *does*
+    use SMT solvers to discharge the goals, the trigger information is
+    useful to have around.
+
+    But for the most part, when creating Lean code from serialized objects,
+    we drop trigger information.
+  -/
   | Trigger
 deriving Repr, Inhabited, DecidableEq
 
@@ -177,22 +189,15 @@ inductive Quant where
   | Exists
 deriving Repr, Inhabited, DecidableEq
 
-
 inductive CallFun where
   | Fun (fn : Ident) -- an optional resolved Fun for methods currently not implemented
   -- | Recursive (name : Ident)
   -- | InternalFun (name : Ident)
 deriving Repr, Inhabited
 
-
 structure VarBinder (ty : Type u) where
   name : Ident
   val : ty
-deriving Repr, Inhabited, DecidableEq
-
-structure Par where
-  name : Ident
-  typ : Typ
 deriving Repr, Inhabited, DecidableEq
 
 mutual
@@ -237,8 +242,6 @@ inductive Exp where
 deriving Repr, Inhabited
 
 end /- mutual -/
-
-abbrev Exps := Array Exp
 
 /--
   Flattened Verus statements.
@@ -311,5 +314,15 @@ def Bind.idents : Bind → List Ident
   | .Let _ => []
   | .Quant _ vars => vars.map (·.name)
   | .Lambda vars => vars.map (·.name)
+
+def Exp.height : Exp → Nat
+  | .Const _
+  | .Var _ => 1
+  | .Unary _ e => 1 + e.height
+  | .Binary _ e₁ e₂ => 1 + max e₁.height e₂.height
+  | .If c b₁ b₂ => 1 + max c.height (max b₁.height b₂.height)
+  | .Bind _ e => 1 + e.height
+  -- CC: Should be folding across max height of exps, but inductive shenanigans get in the way
+  | .Call _ _ _ => 2
 
 end VerusLean
