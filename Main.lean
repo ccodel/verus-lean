@@ -5,10 +5,11 @@ import VerusLean
 open VerusLean
 
 open Lean PrettyPrinter
+open VName
 
-def extract (j : Json) : (Exp × VarMap × FnMap) :=
-  match Exp.fromJson? j default with
-  | .ok exp st => (exp, st.freeVars, st.fns)
+def extract (j : Json) : (Exp × VarMap × DeclMap) :=
+  match Exp.fromJson j default with
+  | .ok exp st => (exp, st.freeVars, st.decls)
   | .error e _ =>
     dbg_trace e
     (.Const (.Bool true), ∅, ∅)
@@ -46,27 +47,38 @@ unsafe def genFromDir' (dirPath : String) : IO String := do
 
     TODO: Place all asserts into one file? Use something other than IDs?
   -/
-  let files := files.insertionSort (fun a b => a.toString < b.toString)
+  let files := files.insertionSort (fun a b =>
+    let a := a.toString
+    let b := b.toString
+    if a.length < b.length then true
+    else if a.length > b.length then false
+    else a < b)
 
   -- Accumulate the function map and assertions across all files
   -- Store serializations that fail to parse as error strings
   -- We use an `Array` for `Assertion`s because `push` is O(1) for arrays
-  let (fmap, asserts, failures) ← files.foldlM (init := ((∅, #[], "") : FnMap × Array Assertion × String))
-    (fun (fnmap, as, str) filePath => do
+  let (fmap, dtmap, asserts, failures) ← files.foldlM (init := ((∅, ∅, #[], "") : FnMap × DeclMap × Array Assertion × String))
+    (fun (fnmap, dtmap, as, str) filePath => do
     match ← Decls.fromFile? filePath.toString with
     | .ok ds => do
-      let ⟨fnmap, as⟩ ←
-        ds.foldlM (init := (fnmap, as)) (fun (fnmap, as) decl => do
+      let ⟨fnmap, dtmap, as⟩ ←
+        ds.foldlM (init := (fnmap, dtmap, as)) (fun (fnmap, dtmap, as) decl => do
           match decl with
-          | Decl.specFn f => return (fnmap.insert f.name f, as)
-          | Decl.assertion a => return (fnmap, as.push a))
-      return (fnmap, as, str)
+          | .specFn f => return (fnmap.insert (name f) f, dtmap, as)
+          | .struct s => return (fnmap, dtmap.insert (name s) s, as)
+          | .enum e => return (fnmap, dtmap.insert (name e) e, as)
+          | .assertion a => return (fnmap, dtmap, as.push a))
+      return (fnmap, dtmap, as, str)
     | .error e => do
       dbg_trace e
-      return (fnmap, as, str ++ s!"-- The JSON at {filePath} failed to generate\n\n")
+      return (fnmap, dtmap, as, str ++ s!"-- The JSON at {filePath} failed to generate\n\n")
   )
 
-  match ← Decl.toFormat (fmap.values.map (.specFn ·) ++ asserts.toList.map (.assertion ·)) with
+  let decls := dtmap.values
+               ++ fmap.values.map (.specFn ·)
+               ++ asserts.toList.map (.assertion ·)
+
+  match ← Decl.toFormat decls with
   | .ok s => return s ++ failures
   | .error e => return s!"Error: {e}"
 

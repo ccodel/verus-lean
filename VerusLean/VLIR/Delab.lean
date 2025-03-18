@@ -35,7 +35,6 @@ unsafe def Decl.toFormat (ds : List Decl) : IO (Except String String) := do
         (s := { env })
         (do
           try
-
             -- Convert the `Decl`s into Lean `Term`s
             let syns : List (TSyntax `command) ← ds.mapM (·.toTerm.run')
 

@@ -17,17 +17,11 @@ open Lean (Json ToJson FromJson)
 abbrev Ident := String
 abbrev Idents := Array Ident
 
--- CC: Figure out `ToJson`, `FromJson` here, because Rust's serialization is different
-
--- CC: A pair, because the second element is a disambiguation (a way to tell apart two identical variable strings)
---     that I didn't want to implement atm
-abbrev VarIdent := (Ident × Unit)
-
 inductive Mode where
   | Spec
   | Proof
   | Exec
-deriving Repr, DecidableEq, Hashable, Inhabited
+deriving Repr, DecidableEq, Inhabited
 
 /-- Describes integer types -/
 inductive IntRange where
@@ -46,27 +40,6 @@ inductive IntRange where
 deriving Repr, Inhabited, DecidableEq
 
 /-- Rust type, but without Box, Rc, Arc, etc. -/
-/-
-inductive Typ
-  /-- Bool, Int, Datatype are translated directly into corresponding SMT types (they are not SMT-boxed) -/
-  | Bool
-  | Int : IntRange → Typ
-  /-- UTF-8 character type -/
-  | Char
-  /--
-    `FnSpec` type (TODO rename from 'Lambda' to just 'FnSpec')
-    (t1, ..., tn) -> t0. -/
-  | Lambda : Array Typ → Typ → Typ
-  /-- Datatype (concrete or abstract) applied to type arguments -/
-  | Datatype : Path → Array Typ → Typ
-  | Array : Typ → Typ → Typ
-  | Slice : Typ → Typ
-  /-- Type parameter (inherently SMT-boxed, and cannot be unboxed) -/
-  | TypParam : Ident → Typ
-  /-- Const integer type argument (e.g. for array sizes) -/
-  | ConstInt : Int → Typ
-deriving ToJson, FromJson, Repr, Inhabited -/
-
 inductive Typ where
   | Bool
   | Int                   /- Mathematical integers            -/
@@ -75,9 +48,21 @@ inductive Typ where
   | SInt (width : Nat)    /- Signed fixed-width integers      -/
   | Char
   | StrSlice
-  -- | ConstInt (i : Int)    /- Const integer type argument      -/
   | Array (t : Typ)       /- Array, ignore length in Rust     -/
-deriving Repr, Inhabited, DecidableEq
+  /--
+    Rust structs, corresponding to Lean `structure`s.
+
+    Note that these are closed-term type "references" to a struct,
+    not a definition of a struct. (That would be a `Decl`, defined below.)
+
+    In Rust, structs can be polymorphic in other types (i.e., `params`).
+    In most cases, `params` will be empty.
+
+    To refer to the actual declaration/definition of the struct,
+    use the datatype map in `Parser.lean`.
+  -/
+  | Struct (name : Ident) (params : List Typ)
+deriving Repr, Inhabited
 
 /-- Constant value literals -/
 inductive Const
@@ -150,6 +135,18 @@ inductive UnaryOp where
     we drop trigger information.
   -/
   | Trigger
+  /--
+    A field projection out of a structure. For example `p.fst`.
+
+    In Verus, this is called a `Field`, and is defined under `UnaryOpr`.
+  -/
+  | Proj (dt field : Ident)
+  /--
+    Determines whether the element matches a given variant of an enum.
+
+    In Verus, this is defined under `UnaryOpr`.
+  -/
+  | IsVariant (dt variant : Ident)
 deriving Repr, Inhabited, DecidableEq
 
 /--
@@ -193,11 +190,6 @@ inductive CallFun where
   | Fun (fn : Ident) -- an optional resolved Fun for methods currently not implemented
   -- | Recursive (name : Ident)
   -- | InternalFun (name : Ident)
-deriving Repr, Inhabited
-
-structure VarBinder (ty : Type u) where
-  name : Ident
-  val : ty
 deriving Repr, Inhabited, DecidableEq
 
 mutual
@@ -211,9 +203,9 @@ mutual
 -/
 inductive Bind where
   -- CC: Verus says this is a `VarBinders`, but for now, we say that each `let x := e` has a single variable binding
-  | Let (var : VarBinder Exp)
-  | Quant (q : Quant) (vars : List (VarBinder Typ))
-  | Lambda (vars : List (VarBinder Typ))
+  | Let (v : Ident) (e : Exp)
+  | Quant (q : Quant) (vars : List (Ident × Typ))
+  | Lambda (vars : List (Ident × Typ))
   -- CC: Ignore choose for now
   -- | Choose ()
 deriving Repr, Inhabited
@@ -228,6 +220,10 @@ inductive Exp where
   | Const (c : Const)
   /-- Local variables, as a right-hand side of an expression. -/
   | Var (ident : Ident)
+  /-- A struct constructor -/
+  | StructCtor (dt : Ident) (fields : List (Ident × Exp))
+  /-- A constructor for the datatype with the name `dt` and the given `fields`. -/
+  | EnumCtor (dt variant : Ident) (data : List (Ident × Exp))
   /-- Primitive unary function application. -/
   | Unary (op : UnaryOp) (arg : Exp)
   -- | UnaryOpr (op : UnaryOp) (arg : Exp)
@@ -272,7 +268,7 @@ deriving Repr, Inhabited
 
 /-
 structure PostConditionSST where
-  dest : Option VarIdent
+  dest : Option Ident
   ensExps : Exps
   ensSpecPreconditionStms : Stms
   kind : PostConditionKind
@@ -285,9 +281,21 @@ structure FuncCheckSST where
   body : StmX
 deriving Repr, Inhabited -/
 
+/--
+  All declarations have names associated with them.
+
+  We prefer this over `ToString` or `Repr` because we want to use
+  the name for hashing, but we want to leave the typical string
+  classes alone for printing, debugging, etc.
+
+  We call this `VName` (Verus Name) to avoid clashes with Lean's `Name`.
+ -/
+class VName (α : Type u) where
+  name : α → String
+
 structure Assertion where
   name : Ident
-  decls : Std.HashMap Ident Typ
+  decls : List (Ident × Typ)
   body : Exp
 deriving Repr, Inhabited
 
@@ -298,6 +306,22 @@ structure SpecFn where
   body : Exp
 deriving Repr, Inhabited
 
+structure Struct where
+  name : Ident
+  params : List Ident := []
+  fields : List (Ident × Typ)
+deriving Repr, Inhabited
+
+structure EnumField where
+  name : Ident
+  data : List (Ident × Typ) := []
+deriving Repr, Inhabited
+
+structure Enum where
+  name : Ident
+  fields : List EnumField
+deriving Repr, Inhabited
+
 /--
   These are top-level "Lean" objects that Lean will evantually turn into
   `def`s and `theorem`s. See `Elab.lean`.
@@ -305,24 +329,107 @@ deriving Repr, Inhabited
 inductive Decl where
   | assertion (a : Assertion)
   | specFn (f : SpecFn)
+  | struct (s : Struct)
+  | enum (e : Enum)
   --| func (f : FuncCheckSST)
 deriving Repr, Inhabited
+
+instance Assertion.instCoeDecl : Coe Assertion Decl := ⟨Decl.assertion⟩
+instance SpecFn.instCoeDecl : Coe SpecFn Decl := ⟨Decl.specFn⟩
+instance Struct.instCoeDecl : Coe Struct Decl := ⟨Decl.struct⟩
+instance Enum.instCoeDecl : Coe Enum Decl := ⟨Decl.enum⟩
+
+instance Assertion.instVName : VName Assertion := ⟨Assertion.name⟩
+instance SpecFn.instVName : VName SpecFn := ⟨SpecFn.name⟩
+instance Struct.instVName : VName Struct := ⟨Struct.name⟩
+instance Enum.instVName : VName Enum := ⟨Enum.name⟩
+instance Decl.instVName : VName Decl where
+  name := fun d => match d with
+    | .assertion a => a.name
+    | .specFn f => f.name
+    | .struct s => s.name
+    | .enum e => e.name
 
 --------------------------------------------------------------------------------
 
 def Bind.idents : Bind → List Ident
-  | .Let _ => []
-  | .Quant _ vars => vars.map (·.name)
-  | .Lambda vars => vars.map (·.name)
+  | .Let v _ => [v]
+  | .Quant _ vars => vars.map (·.fst)
+  | .Lambda vars => vars.map (·.fst)
+
+mutual
+
+def Typ.decEq (t₁ t₂ : Typ) : Decidable (t₁ = t₂) := by
+  cases t₁ <;> cases t₂
+  <;> try { apply isFalse; intro h; injection h }
+  <;> try { apply isTrue; rfl }
+  <;> simp
+  <;> try infer_instance
+  -- Array
+  · rename_i t₁ t₂
+    exact Typ.decEq t₁ t₂
+  -- Struct
+  · rename_i i₁ f₁ i₂ f₂
+    by_cases hi : i₁ = i₂
+    <;> simp [hi]
+    · exact Typ.decListEq f₁ f₂
+    · exact instDecidableFalse
+
+def Typ.decListEq (ts₁ ts₂ : List Typ) : Decidable (ts₁ = ts₂) := by
+  match ts₁, ts₂ with
+  | [], [] => exact isTrue rfl
+  | (_ :: _), [] | [], (_ :: _) => simp; exact instDecidableFalse
+  | (t₁ :: ts₁), (t₂ :: ts₂) =>
+    simp
+    match Typ.decEq t₁ t₂ with
+    | isTrue ht => simp [ht]; exact Typ.decListEq ts₁ ts₂
+    | isFalse ht => simp [ht]; exact instDecidableFalse
+
+end /- mutual -/
+
+instance Typ.instDecidableEq : DecidableEq Typ := Typ.decEq
+instance Typ.instDecidableEqList : DecidableEq (List Typ) := Typ.decListEq
+
+-- CC: Unnecessary?
+theorem Typ.sizeOf_lt_of_mem (i : Ident) (params : List Typ)
+    : ∀ {ty : Typ}, ty ∈ params → sizeOf ty < sizeOf (Typ.Struct i params) := by
+  intro typ
+  induction params with
+  | nil => simp
+  | cons t ts ih =>
+    intro h_mem
+    rcases List.mem_cons.mp h_mem with (rfl | h_mem)
+    · simp
+      omega
+    · have := ih h_mem
+      simp at this ⊢
+      omega
+  done
+
+def Typ.height : Typ → _root_.Nat
+  | .Array ty => 1 + ty.height
+  | .Struct _ params => 1 + params.attach.foldl (init := 0) (λ acc ⟨ty, _⟩ => max acc ty.height)
+  | _ => 1
 
 def Exp.height : Exp → Nat
   | .Const _
   | .Var _ => 1
   | .Unary _ e => 1 + e.height
+  | .StructCtor _ _ => 2
+  | .EnumCtor _ _ _ => 2
+    /-let exps := fields.map Prod.snd
+    have : sizeOf exps ≤ sizeOf fields := by
+      sorry
+      done
+    1 + exps.attach.foldl (init := 0) (λ acc ⟨e, _⟩ =>
+      have : sizeOf exps ≤ sizeOf dt + sizeOf fields + 1 := by
+        sorry
+        done
+      max acc e.height
+    ) -/
   | .Binary _ e₁ e₂ => 1 + max e₁.height e₂.height
   | .If c b₁ b₂ => 1 + max c.height (max b₁.height b₂.height)
   | .Bind _ e => 1 + e.height
-  -- CC: Should be folding across max height of exps, but inductive shenanigans get in the way
-  | .Call _ _ _ => 2
+  | .Call _ _ es => 1 + es.attach.foldl (init := 0) (λ acc ⟨e, _⟩ => max acc e.height)
 
 end VerusLean

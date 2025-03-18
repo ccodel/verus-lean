@@ -1,9 +1,10 @@
 import VerusLean.VLIR.Defs
+import VerusLean.VLIR.Pp
 import Lean.Elab
 
 namespace VerusLean
 
-open Lean Elab Command Parser Term
+open Lean Syntax Elab Command Parser Term Parser.Command
 
 def Ident.toIdent (i : Ident) : MetaM Lean.Ident :=
   return mkIdent (.mkSimple i)
@@ -20,10 +21,16 @@ def Typ.toTerm (ty : Typ) : MetaM Term := do
   | .SInt _ => `(BitVec 32)
   | .Char => return mkIdent ``_root_.Char
   | .StrSlice => throwError "StrSlice not supported"
-  -- | .ConstInt _ => return mkIdent ``_root_.Int
   | .Array t => do
     let t ← t.toTerm
     `(Array $t)
+  | .Struct name params =>
+    let nameAsIdent ← name.toIdent
+    let params := params.attach
+    params.foldlM (init := nameAsIdent) (fun s ⟨ty, _⟩ => do
+      let tyTerm ← ty.toTerm
+      `($s:term $tyTerm:term)
+    )
 
 def Const.toTerm (c : Const) : MetaM Term := do
   match c with
@@ -66,6 +73,12 @@ def UnaryOp.toTerm (u : UnaryOp) (e : Term) : MetaM Term := do
   | .Not => `(¬ ($e))
   | .BitNot _ => `(~~~ $e)
   | .Trigger => `($e) -- Ignore trigger information when constructing terms
+  | .Proj dt field =>
+    let dtName := Name.mkSimple dt
+    let fieldName := mkIdent <| Name.str dtName field
+    `(($fieldName:ident $e))
+  | .IsVariant _ _ =>
+    `(true && true)
   | _ => throwError "unsupported unary op {repr u}"
 
 def BinaryOp.toTerm (b : BinaryOp) (lhs rhs : Term) : MetaM Term := do
@@ -100,7 +113,7 @@ mutual
 -/
 partial def Bind.toTerm (b : Bind) (t : Term) : MetaM Term := do
   match b with
-  | .Let ⟨v, e⟩ =>
+  | .Let v e =>
     let v ← v.toIdent
     let e ← e.toTerm
     -- See `letMVar` in `Lean.Parser.Term.lean`
@@ -138,6 +151,23 @@ partial def Exp.toTerm (e : Exp) : MetaM Term := do
   match e with
   | .Const c => c.toTerm
   | .Var i => i.toIdent
+  | .StructCtor _ fields =>
+    -- For each field, make it a `structInstField`
+    let fields ← fields.toArray.mapM (fun ⟨field, exp⟩ => do
+      let fieldIdent ← field.toIdent
+      let expTerm ← Exp.toTerm exp
+      `(structInstField| $fieldIdent:ident := $expTerm )
+    )
+    `( { $fields:structInstField* } )
+  | .EnumCtor dt variant data =>
+    let dtName := Name.mkStr .anonymous dt
+    let i := mkIdent <| Name.mkStr dtName variant
+    let data ← data.toArray.mapM (fun ⟨_, e⟩ => do
+      --let di ← di.toIdent
+      let e ← e.toTerm
+      `($e)
+    )
+    `( $i:ident $data:term* )
   | .Unary op e =>
     let e ← e.toTerm
     op.toTerm e
@@ -168,38 +198,80 @@ partial def Exp.toTerm (e : Exp) : MetaM Term := do
 
 end /- mutual -/
 
+/--
+  Makes a single explicit binder from an array of identifiers and a type.
+
+  For example, if `as := #[a, b]` and `ty : Int`,
+  then the result is `(a b : Int)`.
+-/
+private def makeExplicitBinder (as : Array Ident) (ty : Typ) : MetaM (TSyntax ``bracketedBinderF) := do
+  let ty ← ty.toTerm
+  let binders : TSyntaxArray `ident ← as.mapM Ident.toIdent
+  `(bracketedBinderF| ($binders:ident* : $ty:term))
+
+/--
+  Makes a `TSyntaxArray ``brackedBinder` with like types collected under
+  a single bracketed binder.
+
+  For example, if `as := #[a, b, c]` with `a b : Int` and `c : Nat`,
+  then the result is `(a b : Int) (c : Nat)`.
+-/
+private def makeExplicitBinders (as : Array (Ident × Typ)) : MetaM (TSyntaxArray ``bracketedBinder) := do
+  let ⟨arr, ltis, ty?⟩ ← as.foldlM (init := (#[], #[], none)) (fun ⟨arr, likeTypIdents, ty?⟩ ⟨i, ty⟩ => do
+    match ty? with
+    | none =>
+      return (arr, likeTypIdents.push i, some ty)
+    | some ty' =>
+      if ty = ty' then
+        -- Defer mapping them into bracketed binder until diff detected
+        return (arr, likeTypIdents.push i, some ty)
+      else
+        let binder ← makeExplicitBinder likeTypIdents ty
+        return (arr.push binder, #[], some ty)
+  )
+
+  match ty? with
+  | some ty => return arr.push (← makeExplicitBinder ltis ty)
+  | none =>
+    if as.size = 0 then return #[]
+    else throwError "empty array"
+
 def Decl.toTerm (d : Decl) : MetaM (TSyntax `command) := do
   match d with
   | .assertion a =>
     let ident ← a.name.toIdent
-    let args : TSyntaxArray ``Lean.Parser.Term.bracketedBinder ←
-      (
-        a.decls.toArray.mapM (fun (i, ty) => do
-          let i ← i.toIdent
-          let ty ← ty.toTerm
-          `(Lean.Parser.Term.bracketedBinderF| ($i : $ty))
-        )
-      )
+    let args ← makeExplicitBinders a.decls.toArray
     let eTerm : Term ← a.body.toTerm
-    let c ← `(command|
-      theorem $ident $(args):bracketedBinder* : $eTerm := by sorry
-    )
-    return c
-  | .specFn f =>
-    let ident ← f.name.toIdent
-    let args : TSyntaxArray ``Lean.Parser.Term.bracketedBinder ←
-      (
-        f.inputs.toArray.mapM (fun (i, ty) => do
-          let i ← i.toIdent
+    `(command| theorem $ident $args:bracketedBinder* : $eTerm := by sorry )
+
+  | .specFn ⟨name, inputs, returnTy, body⟩ =>
+    let ident ← name.toIdent
+    let args ← makeExplicitBinders inputs.toArray
+    let returnType : Term ← returnTy.toTerm
+    let body : Term ← body.toTerm
+    `(command| def $ident $args:bracketedBinder* : $returnType := $body )
+
+  | .struct ⟨name, params, fields⟩ =>
+    let nameAsIdent ← name.toIdent
+    -- TODO: Skipping parameters for now
+    let fields ← fields.toArray.mapM
+      (fun ⟨fieldName, fieldTy⟩ => do
+        let field ← fieldName.toIdent
+        let ty ← fieldTy.toTerm
+        `(structSimpleBinder| $field:ident : $ty))
+    `(command| structure $nameAsIdent:ident where $fields:structSimpleBinder* )
+
+  | .enum ⟨name, fields⟩ =>
+    let nameAsIdent ← name.toIdent
+    let fields ← fields.toArray.mapM
+      (fun ⟨variantName, data⟩ => do
+        let variant ← variantName.toIdent
+        let data ← data.toArray.mapM (fun ⟨_, ty⟩ => do
           let ty ← ty.toTerm
-          `(Lean.Parser.Term.bracketedBinderF| ($i : $ty))
+          `($ty)
         )
-      )
-    let returnType : Term ← f.returnType.toTerm
-    let body : Term ← f.body.toTerm
-    let c ← `(command|
-      def $ident $(args):bracketedBinder* : $returnType := $body
-    )
-    return c
+        `(ctor| | $variant:ident ))
+
+    `(command| inductive $nameAsIdent:ident where $fields:ctor* )
 
 end VerusLean

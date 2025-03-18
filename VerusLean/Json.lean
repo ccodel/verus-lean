@@ -2,20 +2,70 @@ import Lean.Data.Json
 
 namespace Lean.Json
 
+/- Monadic verisons of standard Json functions. Helps when working in the `StateM` monad. -/
+
+variable {m : Type → Type} [Monad m] [MonadExceptOf String m]
+
+def getObjValM (j : Json) (k : String) : m Json :=
+  match j.getObjVal? k with
+  | .ok v => pure v
+  | .error e => throw e
+
+def getArrM (j : Json) : m (Array Json) :=
+  match j.getArr? with
+  | .ok v => pure v
+  | .error e => throw e
+
+def getStrM (j : Json) : m String :=
+  match j.getStr? with
+  | .ok v => pure v
+  | .error e => throw e
+
+def getNatM (j : Json) : m Nat :=
+  match j.getNat? with
+  | .ok v => pure v
+  | .error e => throw e
+
+def getBoolM (j : Json) : m Bool :=
+  match j.getBool? with
+  | .ok v => pure v
+  | .error e => throw e
+
+def getArrValM (j : Json) (i : Nat) : m Json :=
+  match j.getArrVal? i with
+  | .ok v => pure v
+  | .error e => throw e
+
 def isObject (j : Json) : Bool :=
   match j with
   | Json.obj _ => true
   | _ => false
 
-def getNatUnderKey? (j : Json) (key : String) : Except String Nat := do
-  Json.getNat? <| ← j.getObjVal? key
+def getArrUnderKeyM (j : Json) (key : String) : m (Array Json) := do
+  match j.getObjVal? key with
+  | .ok (Json.arr v) => return v
+  | .ok _ => throw s!"expected array under key {key}"
+  | .error e => throw e
 
-def getArrWithSizeGe? (j : Json) (n : Nat) : Except String ({ arr : Array Json // arr.size ≥ n }) := do
-  let arr ← j.getArr?
+def getStrUnderKeyM (j : Json) (key : String) : m String := do
+  Json.getStrM <| ← j.getObjValM key
+
+def getNatUnderKeyM (j : Json) (key : String) : m Nat := do
+  Json.getNatM <| ← j.getObjValM key
+
+def getArrWithSizeGeM (j : Json) (n : Nat) : m ({ arr : Array Json // arr.size ≥ n }) := do
+  let arr ← getArrM j
   if h : arr.size ≥ n then
     return ⟨arr, h⟩
   else
     throw s!"expected array of size {n}, got array of size {arr.size}"
+
+def getArrUnderKeyWithSizeGeM (j : Json) (key : String) (n : Nat) : m ({ arr : Array Json // arr.size ≥ n }) := do
+  let arr ← getArrUnderKeyM j key
+  if h : arr.size ≥ n then
+    return ⟨arr, h⟩
+  else
+    throw s!"expected array of size at least {n}, got array of size {arr.size} under key \"{key}\" in {j}"
 
 def getFirstValHelper? (j : Json) : List String → Except String (String × Json)
   | [] => throw "no keys matched"
@@ -35,9 +85,14 @@ def getFirstVal (j : Json) (l : List String) : Except String (String × Json) :=
   if j.isObject then
     match getFirstValHelper? j l with
     | .ok (s, v) => return (s, v)
-    | .error _ => throw s!"No keys matched. Expected one of {l}"
+    | .error _ => throw s!"No keys matched. Expected one of {l} in {j}"
   else
     throw "object expected"
+
+def getFirstValM (j : Json) (l : List String) : m (String × Json) :=
+  match getFirstVal j l with
+  | .ok v => pure v
+  | .error e => throw e
 
 /--
   Gets a value underneath a "dot-path".
@@ -54,7 +109,12 @@ def getObjValByPath (j : Json) (path : List String) : Except String Json :=
     | _  =>
       match j.getObjVal? k with
       | .ok v => getObjValByPath v ks
-      | .error _ => throw "property not found"
+      | .error _ => throw s!"property \"{k}\" not found in:\n{j}"
+
+def getObjValByPathM (j : Json) (path : List String) : m Json :=
+  match getObjValByPath j path with
+  | .ok v => pure v
+  | .error e => throw e
 
 -- CC: Dunno how to set the priority of a notation, so we route all notation through `getFirstVal`
 -- Notation to alias a Json dictionary lookup
@@ -66,8 +126,8 @@ macro_rules
   | `($j[ $elems,* ]) => do
     let es := Syntax.TSepArray.getElems elems
     match es.size with
-    | 1 => `(Lean.Json.getObjVal $j (es[0]))
-    | _ => `(Lean.Json.getFirstVal $j [ $elems,* ])
+    | 1 => `(Lean.Json.getObjValM $j (es[0]))
+    | _ => `(Lean.Json.getFirstValM $j [ $elems,* ])
 
 
 /-def isInJson (j : Json) (key : String) : Prop :=

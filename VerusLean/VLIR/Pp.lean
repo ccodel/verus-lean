@@ -1,0 +1,181 @@
+import VerusLean.VLIR.Defs
+
+/-!
+
+  Pretty printing of the `VLIR`.
+
+  These functions were originally used to output the Lean code directly.
+  However, delaboration is the better way (see `Delab.lean`). We keep
+  these functions around for `ToString` purposes.
+
+-/
+
+namespace VerusLean
+
+def Ident.pp (i : Ident) : String := i
+
+def Typ.pp (ty : Typ) : String :=
+  match ty with
+  | .Bool => "Bool"
+  | .Int => "Int"
+  | .Nat => "Nat"
+  | .UInt w => s!"UInt{w}"
+  | .SInt w => s!"Int{w}"
+  | .Char => "Char"
+  | .StrSlice => "String"
+  | .Array t => s!"Array ({Typ.pp t})"
+  | .Struct name params =>
+    let params := params.attach.map
+      (fun ⟨ty, _⟩ => if ty.height = 1 then Typ.pp ty else s!"({Typ.pp ty})")
+    let params := String.intercalate " " params
+    s!"{name} {params}"
+
+def Const.pp (c : Const) : String :=
+  match c with
+  | .Bool b => toString b
+  | .Int i => toString i
+  | .StrSlice s => s
+  | .Char c => toString c
+
+def BitwiseOp.pp (op : BitwiseOp) : String :=
+  match op with
+  | .BitXor => " ^^^ "
+  | .BitAnd => " &&& "
+  | .BitOr  => " ||| "
+  | .Shr _ => " >>> "
+  | .Shl _ _ => " <<< "
+
+def ArithOp.pp (op : ArithOp) : String :=
+  match op with
+  | .Add => " + "
+  | .Sub => " - "
+  | .Mul => " * "
+  | .EuclideanDiv => " / "
+  | .EuclideanMod => " % "
+
+def InequalityOp.pp (op : InequalityOp) : String :=
+  match op with
+  | .Lt => " < "
+  | .Le => " ≤ "
+  | .Gt => " > "
+  | .Ge => " ≥ "
+
+def UnaryOp.pp (op : UnaryOp) : String :=
+  match op with
+  | .Not => "!"
+  | .BitNot _ => "!"
+  | _ => "unsupported unary op"
+
+def BinaryOp.pp (op : BinaryOp) : String :=
+  match op with
+  | .And => " ∧ "
+  | .Or => " ∨ "
+  | .Xor => " ^^ "
+  | .Implies => " → "
+  | .Eq _ => " = "
+  | .Ne => " ≠ "
+  | .Inequality ineq => InequalityOp.pp ineq
+  | .Arith arith _ => ArithOp.pp arith
+  | .Bitwise bitwise _ => BitwiseOp.pp bitwise
+
+def Quant.pp (q : Quant) : String :=
+  match q with
+  | .Forall => "∀"
+  | .Exists => "∃"
+
+mutual
+
+partial def Bind.pp (b : Bind) : String :=
+  match b with
+  | .Let v e =>
+    let expStr := Exp.pp e
+    s!"let {v} := {expStr}; "
+  | .Quant q vars =>
+    let qStr := Quant.pp q
+    let varsStr := vars.map (fun ⟨i, ty⟩ => s!"({i.pp} : {ty.pp})")
+    s!"{qStr} {varsStr}, "
+  | .Lambda vars =>
+    let varsStr := vars.map (fun ⟨i, ty⟩ => s!"({i.pp} : {ty.pp})")
+    s!"λ {varsStr} =>"
+
+partial def Exp.pp (e : Exp) : String :=
+  match e with
+  | .Const c => Const.pp c
+  | .Var ident => ident
+  | .StructCtor dt fields =>
+    let fs := fields.map (fun ⟨i, e⟩ => s!"{i}: {Exp.pp e}")
+    let fs := String.intercalate ", " fs
+    "({ " ++ fs ++ "} : " ++ dt ++ ")"
+  | .EnumCtor dt variant data =>
+    s!"{dt}.{variant} {data.map (fun ⟨i, e⟩ => s!"({i}: {Exp.pp e})")}"
+  | .Unary op e =>
+    let e := Exp.pp e
+    "(" ++ UnaryOp.pp op ++ e ++ ")"
+  | .Binary op lhs rhs =>
+    let lhs := Exp.pp lhs
+    let rhs := Exp.pp rhs
+    "(" ++ lhs ++ BinaryOp.pp op ++ rhs ++ ")"
+  | .If cond b₁ b₂ =>
+    let cond := Exp.pp cond
+    let b₁ := Exp.pp b₁
+    let b₂ := Exp.pp b₂
+    "if (" ++ cond ++ ") then (" ++ b₁ ++ ") else (" ++ b₂ ++ ")"
+  | .Bind bnd exp =>
+    let bnd := Bind.pp bnd
+    let exp := Exp.pp exp
+    bnd ++ exp
+  | .Call fn _ exps =>
+    let fn := match fn with
+      | CallFun.Fun fn => fn
+    let exps := exps.map Exp.pp
+    let exps := String.intercalate ", " exps
+    fn ++ "(" ++ exps ++ ")"
+
+end /- mutual -/
+
+instance Ident.toString : ToString Ident := ⟨Ident.pp⟩
+instance Typ.toString : ToString Typ := ⟨Typ.pp⟩
+instance Const.toString : ToString Const := ⟨Const.pp⟩
+instance BitwiseOp.toString : ToString BitwiseOp := ⟨BitwiseOp.pp⟩
+instance ArithOp.toString : ToString ArithOp := ⟨ArithOp.pp⟩
+instance InequalityOp.toString : ToString InequalityOp := ⟨InequalityOp.pp⟩
+instance UnaryOp.toString : ToString UnaryOp := ⟨UnaryOp.pp⟩
+instance BinaryOp.toString : ToString BinaryOp := ⟨BinaryOp.pp⟩
+instance Quant.toString : ToString Quant := ⟨Quant.pp⟩
+instance Bind.toString : ToString Bind := ⟨Bind.pp⟩
+instance Exp.toString : ToString Exp := ⟨Exp.pp⟩
+
+def Assertion.pp (a : Assertion) : String :=
+  let ⟨name, decls, body⟩ := a
+  s!"{name} {decls.map Prod.fst} := {body}"
+
+def SpecFn.pp (f : SpecFn) : String :=
+  let ⟨name, args, ret, body⟩ := f
+  s!"def {name} ({args.keys} : {args.values}) : {ret} := {body}"
+
+def Struct.pp (s : Struct) : String :=
+  let ⟨name, _, fields⟩ := s
+  let fields := fields.map (fun ⟨name, ty⟩ => s!"{name} : {ty}")
+  s!"structure {name} ({fields})"
+
+def EnumField.pp (f : EnumField) : String :=
+  let ⟨name, data⟩ := f
+  s!"| {name} : {data} "
+
+def Enum.pp (e : Enum) : String :=
+  let ⟨name, fields⟩ := e
+  s!"inductive {name} where {fields.map EnumField.pp}"
+
+def Decl.pp (d : Decl) : String :=
+  match d with
+  | .assertion a => Assertion.pp a
+  | .specFn f => SpecFn.pp f
+  | .struct s => Struct.pp s
+  | .enum e => Enum.pp e
+
+instance Assertion.toString : ToString Assertion := ⟨Assertion.pp⟩
+instance SpecFn.toString : ToString SpecFn := ⟨SpecFn.pp⟩
+instance Struct.toString : ToString Struct := ⟨Struct.pp⟩
+instance Decl.toString : ToString Decl := ⟨Decl.pp⟩
+
+end VerusLean
