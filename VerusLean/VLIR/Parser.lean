@@ -1,5 +1,6 @@
 import VerusLean.Json
 import VerusLean.VLIR.Defs
+import VerusLean.VLIR.Pp
 import VerusLean.Basic.Monad
 import Lean
 
@@ -120,7 +121,9 @@ def xJsonFromSpanned (j : Json) : m Json :=
   j.getObjValM "x"
 
 def widthFromJson (j : Json) : m Nat := do
-  j.getNatUnderKeyM "Width"
+  try
+    j.getNatUnderKeyM "Width"
+  catch _ => return 32 -- ArchWordSize, use 32 bit for now
 
 -- TODO: This probably needs to return a namespace (list?), rather than a single ident
 def pathedNameFromJson (j : Json) (pathKey : String := "path") : m Ident := do
@@ -131,17 +134,16 @@ def pathedNameFromNameJson (j : Json) (pathKey : String := "path") : m Ident := 
   let nameObj ← j.getObjValM "name"
   pathedNameFromJson nameObj pathKey
 
-def Typ.fromJson (j : Json) : m Typ := do
+partial def Typ.fromJson (j : Json) : m Typ := do
   match j.getStr? with
   | .ok "Bool" => return .Bool
   | .ok _ => throw "unsupported primitive type"
   | .error _ =>
-    match ← j["Primitive", "Int", "ConstInt", "Array", "Datatype"] with
+    match ← j["Primitive", "Int", "ConstInt", "Datatype", "Boxed"] with
     | ("Primitive", obj) =>
       let t ← obj.getArrM
       match t.get? 0 with
       | some "Array" => throw "unsupported primitive type Array"
-      -- .ok (Typ.Array Typ.Int)
       | some _ => throw "unsupported primitive type"
       | none => throw s!"error, json: {obj}"
 
@@ -150,6 +152,7 @@ def Typ.fromJson (j : Json) : m Typ := do
       match obj.getStr? with
       | .ok "Int" => return .Int
       | .ok "Nat" => return .Nat
+      | .ok "USize" => return .UInt 32 -- assume 32 bit for now
       | .ok _ => throw s!"unsupported Int object string: {obj}"
       | .error _ =>
         -- Now check if it is a fixed-width integer
@@ -171,6 +174,8 @@ def Typ.fromJson (j : Json) : m Typ := do
       -- TODO: Ignoring parameters to the type for now
       let params := []
       return .Struct name params
+
+    | ("Boxed", obj) => Typ.fromJson obj
 
     | _ => throw "unsupported primitive type"
 
@@ -293,7 +298,7 @@ def UnaryOp.fromJson (j : Json) : m UnaryOp := do
   -- TODO: Require the parser state to refer to data types?
 -/
 def UnaryOp.oprFromJson (j : Json) : m UnaryOp := do
-  match ← j["Field", "IsVariant"] with
+  match ← j["Field", "IsVariant", "Box", "Unbox"] with
   | ("Field", obj) =>
     -- TODO: Skipping data type
     let variant ← obj.getStrUnderKeyM "variant"
@@ -303,6 +308,12 @@ def UnaryOp.oprFromJson (j : Json) : m UnaryOp := do
     -- TODO: Skipping data type
     let variant ← obj.getStrUnderKeyM "variant"
     return .IsVariant variant "hello"
+  | ("Box", obj) =>
+    let typ ← Typ.fromJson obj
+    return .Box typ
+  | ("Unbox", obj) =>
+    let typ ← Typ.fromJson obj
+    return .Unbox typ
   | _ =>
     return .Trigger
 
@@ -565,14 +576,14 @@ def datatypeFromJson (j : Json) : VParser Unit := do
 
   This function expects a top-level "wrapped" object, with appropriate
   metadata according to the type of `Decl` to be parsed.
-  For example, a function-level SST is tagged with "FuncCheckSST"
+  For example, a function-level SST is tagged with "FuncCheckSst"
   as well as the function's name.
 
   This function will try to parse an assert first, and if that fails,
   tries to parse a function.
 -/
 partial def Decl.fromJson? (j : Json) : VParser Decl := do
-  match ← j["Assert", "FuncCheckSST"] with
+  match ← j["Assert", "FuncCheckSst"] with
   | ("Assert", (obj : Json)) =>
     -- First, parse the data types (structs and enums)
     let dtObjs ← j.getArrUnderKeyM "Datatypes"
@@ -595,14 +606,36 @@ partial def Decl.fromJson? (j : Json) : VParser Decl := do
     let assertId ← j.getNatUnderKeyM "AssertId"
     return Decl.assertion <| Assertion.mk s!"assert_{assertId}" vmap.toList exp
 
-  | ("FuncCheckSST", _) => do
-
+  | ("FuncCheckSst", (obj : Json)) => do
     let funcNameJson : Json ← j.getObjVal? "FnName"
     let funcName : String ← Json.getStr? funcNameJson
 
-    throw s!"function {funcName} encountered: not yet implemented"
+    -- Parse the spec functions
+    let specObjs ← j.getArrUnderKeyM "SpecFns"
+    let _ ← specObjs.mapM SpecFn.fromJson
 
-  |  _ => throw "[Decl.fromJson?]: Expected one of { Assert, FuncCheckSST }, got something else"
+    -- Parse the preconditions (requires clauses)
+    let reqsArr ← obj.getArrUnderKeyM "reqs"
+    let reqs ← reqsArr.mapM (fun j => do
+      let obj : Json ← xJsonFromSpanned j
+      Exp.fromJson obj
+    )
+
+    -- Parse the post condition (ensures clause)
+    let postCondition ← obj.getObjValM "post_condition"
+    let ensArr ← postCondition.getArrUnderKeyM "ens_exps"
+    let enss ← ensArr.mapM (fun j => do
+      let obj : Json ← xJsonFromSpanned j
+      Exp.fromJson obj
+    )
+    let ens := enss.get! 0 -- we expect only one post condition
+    let vmap ← getFreeVars
+
+    let decl := Decl.func <| FuncCheckSst.mk funcName reqs.toList ens vmap.toList
+    -- dbg_trace s!"decl.pp: {decl.pp}"
+    return decl
+
+  |  _ => throw "[Decl.fromJson?]: Expected one of { Assert, FuncCheckSst }, got something else"
 
 partial def Decls.fromFile? (path : String) : IO (Except String (List Decl)) := do
   let jsonStr ← IO.FS.readFile path

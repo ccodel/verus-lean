@@ -57,7 +57,7 @@ def ArithOp.toTerm (a : ArithOp) (lhs rhs : Term) : MetaM Term := do
   match a with
   | .Add => `($lhs + $rhs)
   | .Sub => `($lhs - $rhs)
-  | .Mul => `($lhs * $rhs)
+  | .Mul => `(($lhs) * ($rhs)) -- CZ: temp fix for operator precedence, when to add parentheses?
   | .EuclideanDiv => `($lhs / $rhs)
   | .EuclideanMod => `($lhs % $rhs)
 
@@ -79,6 +79,8 @@ def UnaryOp.toTerm (u : UnaryOp) (e : Term) : MetaM Term := do
     `(($fieldName:ident $e))
   | .IsVariant _ _ =>
     `(true && true)
+  | .Box _ => `($e)
+  | .Unbox _ => `($e)
   | _ => throwError "unsupported unary op {repr u}"
 
 def BinaryOp.toTerm (b : BinaryOp) (lhs rhs : Term) : MetaM Term := do
@@ -238,10 +240,10 @@ private def makeExplicitBinders (as : Array (Ident × Typ)) : MetaM (TSyntaxArra
 
 def Decl.toTerm (d : Decl) : MetaM (TSyntax `command) := do
   match d with
-  | .assertion a =>
-    let ident ← a.name.toIdent
-    let args ← makeExplicitBinders a.decls.toArray
-    let eTerm : Term ← a.body.toTerm
+  | .assertion ⟨name, decls, body⟩ =>
+    let ident ← name.toIdent
+    let args ← makeExplicitBinders decls.toArray
+    let eTerm : Term ← body.toTerm
     `(command| theorem $ident $args:bracketedBinder* : $eTerm := by sorry )
 
   | .specFn ⟨name, inputs, returnTy, body⟩ =>
@@ -273,5 +275,15 @@ def Decl.toTerm (d : Decl) : MetaM (TSyntax `command) := do
         `(ctor| | $variant:ident ))
 
     `(command| inductive $nameAsIdent:ident where $fields:ctor* )
+
+  | .func ⟨name, reqs, ens, decls⟩ =>
+    let ident ← name.toIdent
+    let reqs : Array Term ← reqs.toArray.mapM (·.toTerm)
+    let ens : Term ← ens.toTerm
+    let init : Term := mkIdent ``_root_.Bool.true
+    let body : Term ← reqs.foldlM (init := init) (fun acc e => `($acc && ($e)))
+    let body ← `( $body → $ens )
+    let args ← makeExplicitBinders decls.toArray
+    `(command| theorem $ident $args:bracketedBinder* : $body := by sorry )
 
 end VerusLean

@@ -147,7 +147,20 @@ inductive UnaryOp where
     In Verus, this is defined under `UnaryOpr`.
   -/
   | IsVariant (dt variant : Ident)
-deriving Repr, Inhabited, DecidableEq
+  /--
+    coerce Typ --> Boxed(Typ)
+
+    In Verus, this is defined under `UnaryOpr`.
+  -/
+  | Box (t : Typ)
+  /--
+    coerce Boxed(Typ) --> Typ
+
+    In Verus, this is defined under `UnaryOpr`.
+  -/
+  | Unbox (t : Typ)
+deriving Repr, Inhabited
+-- deriving Repr, Inhabited, DecidableEq
 
 /--
   Primitive binary operations.
@@ -267,19 +280,22 @@ inductive PostConditionKind
 deriving Repr, Inhabited
 
 /-
+-- simplified as postCondition : Exp in FuncCheckSst
 structure PostConditionSST where
   dest : Option Ident
   ensExps : Exps
   ensSpecPreconditionStms : Stms
   kind : PostConditionKind
 deriving Repr, Inhabited
-
--- CC: Let's not implement everything just yet
-structure FuncCheckSST where
-  reqs : Exps
-  postCondition : PostConditionSST
-  body : StmX
-deriving Repr, Inhabited -/
+ -/
+structure FuncCheckSst where
+  name : Ident
+  reqs : List Exp
+  postCondition : Exp
+  -- Ignore mask_set, unwind, body, and statics for now
+  -- Expects no return value, and an empty body instead of a stmX in a proof fn?
+  decls : List (Ident × Typ)
+deriving Repr, Inhabited
 
 /--
   All declarations have names associated with them.
@@ -331,24 +347,27 @@ inductive Decl where
   | specFn (f : SpecFn)
   | struct (s : Struct)
   | enum (e : Enum)
-  --| func (f : FuncCheckSST)
+  | func (f : FuncCheckSst)
 deriving Repr, Inhabited
 
 instance Assertion.instCoeDecl : Coe Assertion Decl := ⟨Decl.assertion⟩
 instance SpecFn.instCoeDecl : Coe SpecFn Decl := ⟨Decl.specFn⟩
 instance Struct.instCoeDecl : Coe Struct Decl := ⟨Decl.struct⟩
 instance Enum.instCoeDecl : Coe Enum Decl := ⟨Decl.enum⟩
+instance FuncCheckSst.instCoeDecl : Coe FuncCheckSst Decl := ⟨Decl.func⟩
 
 instance Assertion.instVName : VName Assertion := ⟨Assertion.name⟩
 instance SpecFn.instVName : VName SpecFn := ⟨SpecFn.name⟩
 instance Struct.instVName : VName Struct := ⟨Struct.name⟩
 instance Enum.instVName : VName Enum := ⟨Enum.name⟩
+instance FuncCheckSst.instVName : VName FuncCheckSst := ⟨FuncCheckSst.name⟩
 instance Decl.instVName : VName Decl where
   name := fun d => match d with
     | .assertion a => a.name
     | .specFn f => f.name
     | .struct s => s.name
     | .enum e => e.name
+    | .func f => f.name
 
 --------------------------------------------------------------------------------
 

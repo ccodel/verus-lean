@@ -64,6 +64,8 @@ def UnaryOp.pp (op : UnaryOp) : String :=
   match op with
   | .Not => "!"
   | .BitNot _ => "!"
+  | .Box t => t.pp
+  | .Unbox t => t.pp
   | _ => "unsupported unary op"
 
 def BinaryOp.pp (op : BinaryOp) : String :=
@@ -166,12 +168,17 @@ def Enum.pp (e : Enum) : String :=
   let ⟨name, fields⟩ := e
   s!"inductive {name} where {fields.map EnumField.pp}"
 
+def FuncCheckSst.pp (f : FuncCheckSst) : String :=
+  let ⟨name, reqs, ens, decls⟩ := f
+  s!"theorem {name} ({decls.map Prod.fst} : {decls.map Prod.snd}) : {reqs} → {ens}"
+
 def Decl.pp (d : Decl) : String :=
   match d with
   | .assertion a => Assertion.pp a
   | .specFn f => SpecFn.pp f
   | .struct s => Struct.pp s
   | .enum e => Enum.pp e
+  | .func f => FuncCheckSst.pp f
 
 instance Assertion.toString : ToString Assertion := ⟨Assertion.pp⟩
 instance SpecFn.toString : ToString SpecFn := ⟨SpecFn.pp⟩
