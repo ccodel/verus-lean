@@ -169,8 +169,8 @@ def Enum.pp (e : Enum) : String :=
   s!"inductive {name} where {fields.map EnumField.pp}"
 
 def FuncCheckSst.pp (f : FuncCheckSst) : String :=
-  let ⟨name, reqs, ens, decls⟩ := f
-  s!"theorem {name} ({decls.map Prod.fst} : {decls.map Prod.snd}) : {reqs} → {ens}"
+  let ⟨name, reqs, enss, decls⟩ := f
+  s!"theorem {name} ({decls.map Prod.fst} : {decls.map Prod.snd}) : {reqs} → {enss}"
 
 def Decl.pp (d : Decl) : String :=
   match d with

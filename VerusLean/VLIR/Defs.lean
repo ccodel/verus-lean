@@ -89,7 +89,7 @@ deriving Repr, Inhabited, DecidableEq
 inductive ArithOp
   /-- Addition on `IntRange`. -/
   | Add
-  /-- Subtractio on `IntRange`. -/
+  /-- Subtraction on `IntRange`. -/
   | Sub
   /-- Multiplication on `IntRange`. -/
   | Mul
@@ -165,8 +165,8 @@ deriving Repr, Inhabited
 /--
   Primitive binary operations.
 
-  All integer operations are on mathematical integers (`IntRange`).
-  Finite-width operations are represented with a combination of `IntRange` operations
+  All integer operations are on mathematical integers (`IntRange::Int`).
+  Finite-width operations are represented with a combination of `IntRange::Int` operations
   and `UnaryOp.Clip` operations.
 -/
 inductive BinaryOp
@@ -291,7 +291,7 @@ deriving Repr, Inhabited
 structure FuncCheckSst where
   name : Ident
   reqs : List Exp
-  postCondition : Exp
+  postCondition : List Exp
   -- Ignore mask_set, unwind, body, and statics for now
   -- Expects no return value, and an empty body instead of a stmX in a proof fn?
   decls : List (Ident × Typ)

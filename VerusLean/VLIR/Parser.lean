@@ -278,12 +278,16 @@ def UnaryOp.fromJson (j : Json) : m UnaryOp := do
   | .ok "Clip"   => throw "not yet implemented"
   | .ok s => throw s!"[UnaryOp.fromJson?]: Expected one of \{ Not, BitNot, Clip }, got {s}"
   | .error _ =>
-    -- Try seeing if "BitNot" has a width
-    match ← j["BitNot", "Trigger"] with
-    | ("BitNot", obj) =>
+    match ← j["BitNot", "Trigger", "Clip"] with
+    | ("BitNot", obj) => -- Try seeing if "BitNot" has a width
       let width ← widthFromJson obj
       return .BitNot width
     | ("Trigger", _) => return .Trigger
+    | ("Clip", obj) =>
+    --   let range ← obj.getObjValM "range"
+    --   let truncate ← Json.getBoolM <| ← obj.getObjValM "truncate"
+    --   return .Clip range truncate
+      throw "not yet implemented"
     | _ => throw s!"[UnaryOp.fromJson?]: Expected one of \{ BitNot, Trigger }, got {j}"
 
 /--
@@ -628,10 +632,9 @@ partial def Decl.fromJson? (j : Json) : VParser Decl := do
       let obj : Json ← xJsonFromSpanned j
       Exp.fromJson obj
     )
-    let ens := enss.get! 0 -- we expect only one post condition
     let vmap ← getFreeVars
 
-    let decl := Decl.func <| FuncCheckSst.mk funcName reqs.toList ens vmap.toList
+    let decl := Decl.func <| FuncCheckSst.mk funcName reqs.toList enss.toList vmap.toList
     -- dbg_trace s!"decl.pp: {decl.pp}"
     return decl
 

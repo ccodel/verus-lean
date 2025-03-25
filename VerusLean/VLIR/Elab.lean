@@ -276,13 +276,14 @@ def Decl.toTerm (d : Decl) : MetaM (TSyntax `command) := do
 
     `(command| inductive $nameAsIdent:ident where $fields:ctor* )
 
-  | .func ⟨name, reqs, ens, decls⟩ =>
+  | .func ⟨name, reqs, enss, decls⟩ =>
     let ident ← name.toIdent
     let reqs : Array Term ← reqs.toArray.mapM (·.toTerm)
-    let ens : Term ← ens.toTerm
+    let enss : Array Term ← enss.toArray.mapM (·.toTerm)
     let init : Term := mkIdent ``_root_.Bool.true
-    let body : Term ← reqs.foldlM (init := init) (fun acc e => `($acc && ($e)))
-    let body ← `( $body → $ens )
+    let req : Term ← reqs.foldlM (init := init) (fun acc e => `($acc && ($e)))
+    let ens : Term ← enss.foldlM (init := init) (fun acc e => `($acc && ($e)))
+    let body ← `( $req → $ens )
     let args ← makeExplicitBinders decls.toArray
     `(command| theorem $ident $args:bracketedBinder* : $body := by sorry )
 
