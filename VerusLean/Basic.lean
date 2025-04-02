@@ -12,6 +12,15 @@ import VerusLean.Basic.BitVec
 import VerusLean.Basic.Monad
 import VerusLean.Basic.UInt
 
+/--
+  Used to elaborate a trivial proof function from Verus, dischargable via `trivial`.
+
+  For whatever reason, if `True` is elaborated in a command environment,
+  its syntax output is `True.1`, which is technically the right thing,
+  but Lean rejects it. To prevent this, we use this notation instead.
+-/
+notation "TrivialProofFn" => True
+
 namespace String
 
 def cmp (s₁ s₂ : String) : Ordering :=

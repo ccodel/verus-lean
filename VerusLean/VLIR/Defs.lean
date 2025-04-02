@@ -15,7 +15,6 @@ namespace VerusLean
 open Lean (Json ToJson FromJson)
 
 abbrev Ident := String
-abbrev Idents := Array Ident
 
 inductive Mode where
   | Spec
@@ -41,6 +40,8 @@ deriving Repr, Inhabited, DecidableEq
 
 /-- Rust type, but without Box, Rc, Arc, etc. -/
 inductive Typ where
+  | Unit                  /- In Verus, this is represented as a 0-ary tuple. -/
+  | Tuple (ty₁ ty₂ : Typ) /- In Lean, these are `Prod`s. -/
   | Bool
   | Int                   /- Mathematical integers            -/
   | Nat                   /- Mathematical natural numbers     -/
@@ -49,6 +50,7 @@ inductive Typ where
   | Char
   | StrSlice
   | Array (t : Typ)       /- Array, ignore length in Rust     -/
+  | TypParam (i : Ident)  /- Type parameter. For example, `α` in `List α`. -/
   /--
     Rust structs, corresponding to Lean `structure`s.
 
@@ -62,6 +64,19 @@ inductive Typ where
     use the datatype map in `Parser.lean`.
   -/
   | Struct (name : Ident) (params : List Typ)
+  /--
+    Rust enums, corresponding to Lean `inductive` types.
+
+    Note that these are closed-term type "references" to an enum,
+    not a definition of an enum. (That would be a `Decl`, defined below.)
+
+    In Rust, enums can be polymorphic in other types (i.e., `params`).
+    In most cases, `params` will be empty.
+
+    To refer to the actual declaration/definition of the enum,
+    use the datatype map in `Parser.lean`.
+  -/
+  | Enum (name : Ident) (params : List Typ)
 deriving Repr, Inhabited
 
 /-- Constant value literals -/
@@ -190,8 +205,6 @@ inductive BinaryOp
   | Arith (op : ArithOp) (mode : Mode)
   /-- Bitwise operations. Overflow checking is done when `mode = Exec`. -/
   | Bitwise (op : BitwiseOp) (mode : Mode)
-    -- /// Used only for handling builtin::strslice_get_char (CC: ??)
-  -- | StrGetChar
 deriving Repr, Inhabited, DecidableEq
 
 inductive Quant where
@@ -216,7 +229,7 @@ mutual
 -/
 inductive Bind where
   -- CC: Verus says this is a `VarBinders`, but for now, we say that each `let x := e` has a single variable binding
-  | Let (v : Ident) (e : Exp)
+  | Let (v : Ident) (ty : Typ) (e : Exp)
   | Quant (q : Quant) (vars : List (Ident × Typ))
   | Lambda (vars : List (Ident × Typ))
   -- CC: Ignore choose for now
@@ -252,24 +265,36 @@ deriving Repr, Inhabited
 
 end /- mutual -/
 
+structure LoopInvariant where
+  atEntry : Bool
+  atExit : Bool
+  body : Exp
+deriving Repr, Inhabited
+
 /--
   Flattened Verus statements.
 
   Statements don't have return values.
 -/
-/-
-inductive StmX where
-  -- CC: Is this needed, since the only way assertions end up in Lean is via AssertLean?
-  -- A normal Verus assertion.
-  --| Assert (exp : Exp)
-  -- An assertion on a bitvector statement.
-  -- | AssertBitVector (requires ensures : Exps)
-  --| Return ()
-  /-- If-statements. Second branch can be optionally omitted. -/
-  | If (exp : Exp) (branch₁ : StmX) (branch₂ : Option StmX)
-deriving Repr, Inhabited -/
-
---abbrev Stms := Array StmX
+inductive Stm where
+  | Call (fn : Ident) (typArgs : List Typ) (args : List Exp)  -- misisng split, dest
+  | Assert (exp : Exp)
+  | AssertBitVector (requires ensures : List Exp)
+  | AssertQuery (body : Stm) -- missing mode, typ_inv_exps, typ_inv_vars
+  | AssertCompute (exp : Exp) -- should never occur (removed by elaborate_function2() in verus)
+  | AssertLean (exp : Exp)
+  | Assume (exp : Exp)  -- we could treat these as axioms, or just "by verus"?
+  | Assign (lhs : Ident) (lhsTy : Typ) (rhs : Exp) (lhsIsInit : Bool) -- CC: In verus, LHS is a Dest, but we take a shortcut
+  | DeadEnd (stm : Stm)
+  | Return (exp : Option Exp)
+  | BreakOrContinue (label : Option String) (isBreak : Bool)
+  | If (cond : Exp) (branch₁ : Stm) (branch₂ : Option Stm)
+  | Loop (isForLoop : Bool) (label : Option String) (cond : Option (Stm × Exp)) (body : Stm)
+         (invariants : List LoopInvariant) -- missing decrease, typ_inv_vars
+  | OpenInvariant (stm : Stm)
+  | ClosureInner (body : Stm) -- missing typ_inv_vars
+  | Block (stms : List Stm)
+deriving Repr, Inhabited
 
 --------------------------------------------------------------------------------
 
@@ -298,10 +323,13 @@ structure FuncCheckSst where
 deriving Repr, Inhabited
 
 /--
-  All declarations have names associated with them.
+  A type class to extract the name of a declaration.
+
+  In Verus (and in Lean), all declarations have names associated with them.
+  We use this type class to refer to them.
 
   We prefer this over `ToString` or `Repr` because we want to use
-  the name for hashing, but we want to leave the typical string
+  this name for hashing, but we want to leave the typical string
   classes alone for printing, debugging, etc.
 
   We call this `VName` (Verus Name) to avoid clashes with Lean's `Name`.
@@ -317,14 +345,22 @@ deriving Repr, Inhabited
 
 structure SpecFn where
   name : Ident
-  inputs : Std.HashMap Ident Typ
+  inputs : List (Ident × Typ)
   returnType : Typ
   body : Exp
 deriving Repr, Inhabited
 
+structure ProofFn where
+  name : Ident
+  inputs : List (Ident × Typ)
+  requires : List Exp
+  ensures : List Exp
+  body : Stm
+deriving Repr, Inhabited
+
 structure Struct where
   name : Ident
-  params : List Ident := []
+  typeParams : List Ident := []
   fields : List (Ident × Typ)
 deriving Repr, Inhabited
 
@@ -335,6 +371,7 @@ deriving Repr, Inhabited
 
 structure Enum where
   name : Ident
+  typeParams : List Ident := []
   fields : List EnumField
 deriving Repr, Inhabited
 
@@ -345,6 +382,7 @@ deriving Repr, Inhabited
 inductive Decl where
   | assertion (a : Assertion)
   | specFn (f : SpecFn)
+  | proofFn (f : ProofFn)
   | struct (s : Struct)
   | enum (e : Enum)
   | func (f : FuncCheckSst)
@@ -352,12 +390,14 @@ deriving Repr, Inhabited
 
 instance Assertion.instCoeDecl : Coe Assertion Decl := ⟨Decl.assertion⟩
 instance SpecFn.instCoeDecl : Coe SpecFn Decl := ⟨Decl.specFn⟩
+instance ProofFn.instCoeDecl : Coe ProofFn Decl := ⟨Decl.proofFn⟩
 instance Struct.instCoeDecl : Coe Struct Decl := ⟨Decl.struct⟩
 instance Enum.instCoeDecl : Coe Enum Decl := ⟨Decl.enum⟩
 instance FuncCheckSst.instCoeDecl : Coe FuncCheckSst Decl := ⟨Decl.func⟩
 
 instance Assertion.instVName : VName Assertion := ⟨Assertion.name⟩
 instance SpecFn.instVName : VName SpecFn := ⟨SpecFn.name⟩
+instance ProofFn.instVName : VName ProofFn := ⟨ProofFn.name⟩
 instance Struct.instVName : VName Struct := ⟨Struct.name⟩
 instance Enum.instVName : VName Enum := ⟨Enum.name⟩
 instance FuncCheckSst.instVName : VName FuncCheckSst := ⟨FuncCheckSst.name⟩
@@ -365,16 +405,17 @@ instance Decl.instVName : VName Decl where
   name := fun d => match d with
     | .assertion a => a.name
     | .specFn f => f.name
+    | .proofFn f => f.name
     | .struct s => s.name
     | .enum e => e.name
     | .func f => f.name
 
 --------------------------------------------------------------------------------
 
-def Bind.idents : Bind → List Ident
-  | .Let v _ => [v]
-  | .Quant _ vars => vars.map (·.fst)
-  | .Lambda vars => vars.map (·.fst)
+def Bind.idents : Bind → List (Ident × Typ)
+  | .Let v ty _ => [(v, ty)]
+  | .Quant _ vars => vars
+  | .Lambda vars => vars
 
 mutual
 
@@ -384,15 +425,21 @@ def Typ.decEq (t₁ t₂ : Typ) : Decidable (t₁ = t₂) := by
   <;> try { apply isTrue; rfl }
   <;> simp
   <;> try infer_instance
+  -- Tuple
+  · rename_i t₁ t₂ t₃ t₄
+    match Typ.decEq t₁ t₃, Typ.decEq t₂ t₄ with
+    | isTrue ht₁, isTrue ht₂ => simp [ht₁, ht₂]; exact instDecidableTrue
+    | isFalse ht₁, _ => simp [ht₁]; exact instDecidableFalse
+    | _, isFalse ht₂ => simp [ht₂]; exact instDecidableFalse
   -- Array
-  · rename_i t₁ t₂
-    exact Typ.decEq t₁ t₂
-  -- Struct
-  · rename_i i₁ f₁ i₂ f₂
+  · exact Typ.decEq _ _
+  -- Struct/Enum
+  all_goals
+  ( rename_i i₁ f₁ i₂ f₂
     by_cases hi : i₁ = i₂
     <;> simp [hi]
     · exact Typ.decListEq f₁ f₂
-    · exact instDecidableFalse
+    · exact instDecidableFalse )
 
 def Typ.decListEq (ts₁ ts₂ : List Typ) : Decidable (ts₁ = ts₂) := by
   match ts₁, ts₂ with
@@ -427,7 +474,8 @@ theorem Typ.sizeOf_lt_of_mem (i : Ident) (params : List Typ)
 
 def Typ.height : Typ → _root_.Nat
   | .Array ty => 1 + ty.height
-  | .Struct _ params => 1 + params.attach.foldl (init := 0) (λ acc ⟨ty, _⟩ => max acc ty.height)
+  | .Struct _ params
+  | .Enum _ params => 1 + params.attach.foldl (init := 0) (λ acc ⟨ty, _⟩ => max acc ty.height)
   | _ => 1
 
 def Exp.height : Exp → Nat
@@ -450,5 +498,22 @@ def Exp.height : Exp → Nat
   | .If c b₁ b₂ => 1 + max c.height (max b₁.height b₂.height)
   | .Bind _ e => 1 + e.height
   | .Call _ _ es => 1 + es.attach.foldl (init := 0) (λ acc ⟨e, _⟩ => max acc e.height)
+
+/--
+  Extracts the identifier in the expression.
+
+  Some, but not all, of the `Exp` branches stand in for variable names
+  and identifiers. This function gets out that identifier.
+
+  Mainly used to elaborate `let` expressions at the Lean level.
+
+  TODO: In Rust, you can use let expressions to decompose RHS expressions.
+  In Lean, that is usually done with `have`. (But maybe `let` works as well?)
+
+  TODO: CC Remove?
+-/
+def Exp.ident? : Exp → Option Ident
+  | .Var i => some i
+  | _ => none
 
 end VerusLean

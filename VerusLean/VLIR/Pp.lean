@@ -5,8 +5,8 @@ import VerusLean.VLIR.Defs
   Pretty printing of the `VLIR`.
 
   These functions were originally used to output the Lean code directly.
-  However, delaboration is the better way (see `Delab.lean`). We keep
-  these functions around for `ToString` purposes.
+  However, delaboration is now the current strategy (see `Delab.lean`).
+  We keep these functions around for `ToString` purposes.
 
 -/
 
@@ -16,6 +16,8 @@ def Ident.pp (i : Ident) : String := i
 
 def Typ.pp (ty : Typ) : String :=
   match ty with
+  | .Unit => "Unit"
+  | .Tuple t₁ t₂ => s!"({Typ.pp t₁}) × ({Typ.pp t₂})"
   | .Bool => "Bool"
   | .Int => "Int"
   | .Nat => "Nat"
@@ -24,11 +26,16 @@ def Typ.pp (ty : Typ) : String :=
   | .Char => "Char"
   | .StrSlice => "String"
   | .Array t => s!"Array ({Typ.pp t})"
-  | .Struct name params =>
-    let params := params.attach.map
-      (fun ⟨ty, _⟩ => if ty.height = 1 then Typ.pp ty else s!"({Typ.pp ty})")
-    let params := String.intercalate " " params
-    s!"{name} {params}"
+  | .TypParam i => i
+  | .Struct name params
+  | .Enum name params =>
+    if params.length > 0 then
+      let params := params.attach.map
+        (fun ⟨ty, _⟩ => if ty.height = 1 then Typ.pp ty else s!"({Typ.pp ty})")
+      let params := String.intercalate " " params
+      s!"{name} {params}"
+    else
+      name
 
 def Const.pp (c : Const) : String :=
   match c with
@@ -64,6 +71,8 @@ def UnaryOp.pp (op : UnaryOp) : String :=
   match op with
   | .Not => "!"
   | .BitNot _ => "!"
+  | .Proj dt field => s!"{dt}.{field}"
+  | .IsVariant dt variant => s!"is {dt}.{variant}: "
   | .Box t => t.pp
   | .Unbox t => t.pp
   | _ => "unsupported unary op"
@@ -89,9 +98,10 @@ mutual
 
 partial def Bind.pp (b : Bind) : String :=
   match b with
-  | .Let v e =>
+  | .Let v ty e =>
+    let tyStr := Typ.pp ty
     let expStr := Exp.pp e
-    s!"let {v} := {expStr}; "
+    s!"let {v} : {tyStr} := {expStr}; "
   | .Quant q vars =>
     let qStr := Quant.pp q
     let varsStr := vars.map (fun ⟨i, ty⟩ => s!"({i.pp} : {ty.pp})")
@@ -135,6 +145,40 @@ partial def Exp.pp (e : Exp) : String :=
 
 end /- mutual -/
 
+partial def Stm.pp (stm : Stm) : String :=
+  match stm with
+  | .Call fn _ args =>
+    let args := args.map Exp.pp
+    s!"{fn} {args}"
+  | .Assert e => s!"assert {Exp.pp e}"
+  | .AssertBitVector reqs ens =>
+    s!"assertBitVector {reqs.map Exp.pp} {ens.map Exp.pp}"
+  | .AssertQuery stm => s!"assertQuery {Stm.pp stm}"
+  | .AssertLean e => s!"assertLean {Exp.pp e}"
+  | .Assume e => s!"assume {Exp.pp e}"
+  | .Assign lhs ty rhs _ =>
+    let tyStr := Typ.pp ty
+    let rhs := Exp.pp rhs
+    s!"let {lhs} : {tyStr} := {rhs}"
+  | .DeadEnd stm => s!"deadEnd {Stm.pp stm}"
+  | .Return e =>
+    match e with
+    | none => ""
+    | some e => s!"return {Exp.pp e}"
+  | .If cond b₁ b₂ =>
+    let cond := Exp.pp cond
+    let b₁ := Stm.pp b₁
+    match b₂ with
+    | none    => s!"if ({cond}) then ({b₁})"
+    | some b₂ => s!"if ({cond}) then ({b₁}) else ({Stm.pp b₂})"
+  | .OpenInvariant stm => s!"openInvariant {Stm.pp stm}"
+  | .Block stms =>
+    let stms := stms.map Stm.pp
+    let stms := String.intercalate "\n" stms
+    s!"{stms}\n"
+  | _ => "stm feature not yet implemented"
+
+
 instance Ident.toString : ToString Ident := ⟨Ident.pp⟩
 instance Typ.toString : ToString Typ := ⟨Typ.pp⟩
 instance Const.toString : ToString Const := ⟨Const.pp⟩
@@ -146,6 +190,7 @@ instance BinaryOp.toString : ToString BinaryOp := ⟨BinaryOp.pp⟩
 instance Quant.toString : ToString Quant := ⟨Quant.pp⟩
 instance Bind.toString : ToString Bind := ⟨Bind.pp⟩
 instance Exp.toString : ToString Exp := ⟨Exp.pp⟩
+instance Stm.toString : ToString Stm := ⟨Stm.pp⟩
 
 def Assertion.pp (a : Assertion) : String :=
   let ⟨name, decls, body⟩ := a
@@ -153,7 +198,17 @@ def Assertion.pp (a : Assertion) : String :=
 
 def SpecFn.pp (f : SpecFn) : String :=
   let ⟨name, args, ret, body⟩ := f
-  s!"def {name} ({args.keys} : {args.values}) : {ret} := {body}"
+  if args.length > 0 then
+    s!"def {name} {args} : {ret} := {body}"
+  else
+    s!"def {name} : {ret} := {body}"
+
+def ProofFn.pp (f : ProofFn) : String :=
+  let ⟨name, args, requires, ensures, body⟩ := f
+  if args.length > 0 then
+    s!"theorem {name} {args} : {ensures} := by sorry"
+  else
+    s!"theorem {name} : {ensures} := by sorry"
 
 def Struct.pp (s : Struct) : String :=
   let ⟨name, _, fields⟩ := s
@@ -165,7 +220,7 @@ def EnumField.pp (f : EnumField) : String :=
   s!"| {name} : {data} "
 
 def Enum.pp (e : Enum) : String :=
-  let ⟨name, fields⟩ := e
+  let ⟨name, _, fields⟩ := e
   s!"inductive {name} where {fields.map EnumField.pp}"
 
 def FuncCheckSst.pp (f : FuncCheckSst) : String :=
@@ -176,12 +231,14 @@ def Decl.pp (d : Decl) : String :=
   match d with
   | .assertion a => Assertion.pp a
   | .specFn f => SpecFn.pp f
+  | .proofFn f => ProofFn.pp f
   | .struct s => Struct.pp s
   | .enum e => Enum.pp e
   | .func f => FuncCheckSst.pp f
 
 instance Assertion.toString : ToString Assertion := ⟨Assertion.pp⟩
 instance SpecFn.toString : ToString SpecFn := ⟨SpecFn.pp⟩
+instance ProofFn.toString : ToString ProofFn := ⟨ProofFn.pp⟩
 instance Struct.toString : ToString Struct := ⟨Struct.pp⟩
 instance Decl.toString : ToString Decl := ⟨Decl.pp⟩
 

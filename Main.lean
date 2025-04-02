@@ -65,6 +65,7 @@ unsafe def genFromDir' (dirPath : String) : IO String := do
         ds.foldlM (init := (fnmap, dtmap, as, ps)) (fun (fnmap, dtmap, as, ps) decl => do
           match decl with
           | .specFn f => return (fnmap.insert (name f) f, dtmap, as, ps)
+          | .proofFn f => return (fnmap, dtmap, as, ps) -- CC TODO This is broken
           | .struct s => return (fnmap, dtmap.insert (name s) s, as, ps)
           | .enum e => return (fnmap, dtmap.insert (name e) e, as, ps)
           | .assertion a => return (fnmap, dtmap, as.push a, ps)
@@ -88,10 +89,10 @@ unsafe def main : List String → IO Unit
   | [path] => do
     let res ← Decls.fromFile? path
     match res with
-    | .ok ds =>
-      --let declsString := map.fold (init := " ") (fun str k _ => str ++ s!"({k} : Bool) ")
-      --IO.println <| preludeString ++ e.toTheoremString (decls := declsString) ++ postludeString
-      IO.println "Ignored for now"
+    | .ok decls =>
+      match ← Decl.toFormat decls with
+      | .ok str => IO.println <| preludeString ++ str ++ postludeString
+      | .error e => IO.println s!"Error: {e}"
     | .error e => IO.println e
   | ["dir", path] => do
     -- IO.println "Reading from a directory"

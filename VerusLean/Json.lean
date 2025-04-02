@@ -9,7 +9,7 @@ variable {m : Type → Type} [Monad m] [MonadExceptOf String m]
 def getObjValM (j : Json) (k : String) : m Json :=
   match j.getObjVal? k with
   | .ok v => pure v
-  | .error e => throw e
+  | .error e => throw s!"{e} in {j}"
 
 def getArrM (j : Json) : m (Array Json) :=
   match j.getArr? with
@@ -41,17 +41,42 @@ def isObject (j : Json) : Bool :=
   | Json.obj _ => true
   | _ => false
 
+def getArrUnderKey? (j : Json) (key : String) : Except String (Array Json) :=
+  match j.getObjVal? key with
+  | .ok (Json.arr v) => return v
+  | .ok _ => throw s!"expected array under key {key}"
+  | .error e => throw e
+
 def getArrUnderKeyM (j : Json) (key : String) : m (Array Json) := do
   match j.getObjVal? key with
   | .ok (Json.arr v) => return v
   | .ok _ => throw s!"expected array under key {key}"
   | .error e => throw e
 
+def getStrUnderKey? (j : Json) (key : String) : Except String String :=
+  match j.getObjVal? key with
+  | .ok (Json.str v) => return v
+  | .ok _ => throw s!"expected string under key {key}"
+  | .error e => throw e
+
 def getStrUnderKeyM (j : Json) (key : String) : m String := do
   Json.getStrM <| ← j.getObjValM key
 
+def getNatUnderKey? (j : Json) (key : String) : Except String Nat :=
+  match j.getObjVal? key with
+  | .ok j => j.getNat?
+  | .error e => throw e
+
 def getNatUnderKeyM (j : Json) (key : String) : m Nat := do
   Json.getNatM <| ← j.getObjValM key
+
+def getBoolUnderKey? (j : Json) (key : String) : Except String Bool :=
+  match j.getObjVal? key with
+  | .ok j => j.getBool?
+  | .error e => throw e
+
+def getBoolUnderKeyM (j : Json) (key : String) : m Bool := do
+  Json.getBoolM <| ← j.getObjValM key
 
 def getArrWithSizeGeM (j : Json) (n : Nat) : m ({ arr : Array Json // arr.size ≥ n }) := do
   let arr ← getArrM j
@@ -115,6 +140,26 @@ def getObjValByPathM (j : Json) (path : List String) : m Json :=
   match getObjValByPath j path with
   | .ok v => pure v
   | .error e => throw e
+
+/--
+  Gets an array underneath a "dot-path".
+
+  Wrapper for `getArr? <| getObjValByPath`.
+-/
+def getArrByPath? (j : Json) (path : List String) : Except String (Array Json) := do
+  getArr? <| ← getObjValByPath j path
+
+def getArrByPathM (j : Json) (path : List String) : m (Array Json) := do
+  match getArrByPath? j path with
+  | .ok v => pure v
+  | .error e => throw e
+
+def getArrByPathWithSizeGeM (j : Json) (path : List String) (n : Nat) : m ({ arr : Array Json // arr.size ≥ n }) := do
+  let arr ← getArrByPathM j path
+  if h : arr.size ≥ n then
+    return ⟨arr, h⟩
+  else
+    throw s!"expected array of size at least {n}, got array of size {arr.size} under path \"{path}\" in {j}"
 
 -- CC: Dunno how to set the priority of a notation, so we route all notation through `getFirstVal`
 -- Notation to alias a Json dictionary lookup

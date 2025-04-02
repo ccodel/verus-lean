@@ -14,9 +14,7 @@ abbrev VarMap := Std.HashMap Ident Typ
 
 /-- A map for functions. Alias for `Std.HashMap Ident SpecFn`. -/
 abbrev FnMap := Std.HashMap Ident SpecFn
-
 abbrev DtMap := Std.HashMap Ident Struct
-
 abbrev DeclMap := Std.HashMap Ident Decl
 
 /--
@@ -34,7 +32,7 @@ structure ParserState where
   expectedType : Typ := .Bool
   freeVars : VarMap := {}
   -- Acts like a stack?
-  boundVars : List Ident := []
+  boundVars : List (Ident × Typ) := []
   decls : DeclMap := {}
 deriving Inhabited, Repr
 
@@ -56,42 +54,78 @@ def setTyp (t : Typ) : VParser Unit :=
 def getFreeVars : VParser VarMap :=
   do let st ← get; return st.freeVars
 
-def getBoundVars : VParser (List Ident) :=
+def getBoundVars : VParser (List (Ident × Typ)) :=
   do let st ← get; return st.boundVars
 
+-- Adds a free variable with the explicitly given name `var` and type `typ`.
 def addFreeVarWithTyp (var : Ident) (typ : Typ) : VParser Unit := do
   modify fun st => { st with
-    freeVars := st.freeVars.insert var typ }
+    freeVars := st.freeVars.insert var typ
+  }
 
+-- Adds a free variable, using the type stored in the state.
 def addFreeVar (var : Ident) : VParser Unit := do
   addFreeVarWithTyp var (← getTyp)
 
-/--
-  Only adds a free variable if it is not already bound locally.
--/
-def addFreeVarIfNotBound (var : Ident) : VParser Unit := do
-  if !(← getBoundVars).contains var then
-    addFreeVar var
-  else
-    return ()
+def pushBoundVar (var : Ident) (typ : Typ) : VParser Unit :=
+  modify fun st => { st with boundVars := (var, typ) :: st.boundVars }
 
-def pushBoundVar (var : Ident) : VParser Unit :=
-  modify fun st => { st with boundVars := var :: st.boundVars }
-
-def pushBoundVars (vars : List Ident) : VParser Unit :=
+-- Pushes a list of bound vars.
+-- Note that lower indexes in `vars` means they get popped off sooner.
+-- This is opposite from what one might expect, but is typical stack behavior.
+def pushBoundVars (vars : List (Ident × Typ)) : VParser Unit :=
   modify fun st => { st with boundVars := vars ++ st.boundVars }
 
+-- Pops the newest bound variable off the stack.
+-- If the stack is empty, nothing happens.
 def popBoundVar : VParser Unit :=
   modify fun st => { st with boundVars := st.boundVars.tail }
 
+-- Pops the `n` newest bound variables off the stack.
+-- If `n` is greater than the size of the stack, then the stack becomes empty.
 def popBoundVars (n : Nat) : VParser Unit :=
   modify fun st => { st with boundVars := st.boundVars.drop n }
 
-def withBoundVars (vars : List Ident) (fn : VParser α) : VParser α := do
+/-- Perform the state-ful function `fn` with the bound vars `vars`,
+    then pops them off the bound variables stack before returning. -/
+def withBoundVars (vars : List (Ident × Typ)) (fn : VParser α) : VParser α := do
   pushBoundVars vars
   let a ← fn
   popBoundVars vars.length
   return a
+
+/--
+  Run function `fn` and then pop any bound vars added under `fn`.
+
+  Note that this assumes that `fn` will only add variables and not modify
+  the ones already on the stack.
+-/
+def restoreCurrentBoundVarsAfter (fn : VParser α) : VParser α := do
+  let n := List.length <| ← getBoundVars
+  let a ← fn
+  let m := List.length <| ← getBoundVars
+  popBoundVars (m - n)
+  return a
+
+/--
+  Consults the bound vars, from newest to oldest, to see if one named `var` exists.
+-/
+def lookupBoundVarTyp? (var : Ident) : VParser (Option Typ) := do
+  let boundVars ← getBoundVars
+  match boundVars.find? (fun ⟨i, _⟩ => i == var) with
+  | some (_, typ) => return some typ
+  | none => return none
+
+/--
+  Only adds a free variable if it is not already bound locally.
+-/
+def addFreeVarWithTypIfNotBound (var : Ident) (typ : Typ) : VParser Unit := do
+  match ← lookupBoundVarTyp? var with
+  | some _ => return ()
+  | none => addFreeVarWithTyp var typ
+
+def addFreeVarIfNotBound (var : Ident) : VParser Unit := do
+  addFreeVarWithTypIfNotBound var (← getTyp)
 
 def addDecl (d : Decl) : VParser Unit :=
   modify fun st => { st with decls := st.decls.insert (name d) d }
@@ -169,14 +203,42 @@ partial def Typ.fromJson (j : Json) : m Typ := do
         | .ok _ => throw s!"unsupported Int object: {obj}"
 
     | ("Datatype", obj) =>
+      /-
+        Filter the `Tuples` from the true datatypes.
+
+        Verus represents tuples as Datatypes. The arity of the tuple is given
+        after the colon. The elements in the array under index 1 are the type
+        arguments to either the tuple or to the datatype.
+
+        Because these aren't "Datatypes" on Lean's side of things, we direct
+        any "Tuple" serialization to the correct type.
+      -/
       let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 3
-      let name ← pathedNameFromJson arr[0] "Path"
-      -- TODO: Ignoring parameters to the type for now
-      let params := []
-      return .Struct name params
+      match arr[0].getNatUnderKey? "Tuple" with
+      | .ok arity =>
+        match arity with
+        | 0 => return .Unit
+        | 1 => throw "Tuples should not have a single type"
+        | a + 2 =>
+          let ⟨typArray, _⟩ ← arr[1].getArrWithSizeGeM (a + 2)
+          let typeParams ← typArray.mapM Typ.fromJson
 
+          -- Fold from the right (because product is right-associative)
+          match typeParams.foldr (init := none) (fun typ acc  =>
+              match acc with
+              | none => some typ
+              | some acc => some <| .Tuple typ acc) with
+          | none => throw "no type params"
+          | some ty => return ty
+      | .error _ =>
+        let name ← pathedNameFromJson arr[0] "Path"
+        -- TODO: Ignoring parameters to the type for now
+        let params := []
+        return .Struct name params
+
+    -- Boxed types are mainly used for SMT encodings in Verus.
+    -- In Lean, just take the base type.
     | ("Boxed", obj) => Typ.fromJson obj
-
     | _ => throw "unsupported primitive type"
 
 /--
@@ -186,7 +248,7 @@ partial def Typ.fromJson (j : Json) : m Typ := do
   This annotation should be added to the state's `HashMap` when encountering a `Var`.
 -/
 def fromJsonSpanned {α : Type} (j : Json) (fj : Json → VParser α) : VParser α := do
-  let typ ← Typ.fromJson <| ← j.getObjVal? "typ"
+  let typ ← Typ.fromJson <| ← j.getObjValM "typ"
   let x ← j.getObjVal? "x"
   setTyp typ
   fj x
@@ -229,8 +291,8 @@ def Const.fromJson (j : Json) : m Const := do
       let n := nArr.getD 0 (Json.num <| JsonNumber.fromNat 0)
       return Const.Int <| -(Int.ofNat <| ← n.getNatM)
     | _ => throw "[Const.fromJson?]: Expected an Int sign of 0, 1, or 2"
-  | ("StrSlice", _) => throw "not yet implemented"
-  | ("Char", _) => throw "not yet implemented"
+  | ("StrSlice", _) => throw "StrSlice not yet implemented"
+  | ("Char", _) => throw "Char not yet implemented"
   | _ => throw "[Const.fromJson?]: Unexpected match"
 
 def Bitwise.fromJson (j : Json) : m BitwiseOp :=
@@ -274,8 +336,8 @@ def InequalityOp.fromJson (j : Json) : m InequalityOp := do
 def UnaryOp.fromJson (j : Json) : m UnaryOp := do
   match j.getStr? with
   | .ok "Not"    => return .Not
-  | .ok "BitNot" => throw "not yet implemented"
-  | .ok "Clip"   => throw "not yet implemented"
+  | .ok "BitNot" => throw "BitNot not yet implemented"
+  | .ok "Clip"   => throw "Clip not yet implemented"
   | .ok s => throw s!"[UnaryOp.fromJson?]: Expected one of \{ Not, BitNot, Clip }, got {s}"
   | .error _ =>
     match ← j["BitNot", "Trigger", "Clip"] with
@@ -283,11 +345,11 @@ def UnaryOp.fromJson (j : Json) : m UnaryOp := do
       let width ← widthFromJson obj
       return .BitNot width
     | ("Trigger", _) => return .Trigger
-    | ("Clip", obj) =>
+    | ("Clip", _) =>
     --   let range ← obj.getObjValM "range"
     --   let truncate ← Json.getBoolM <| ← obj.getObjValM "truncate"
     --   return .Clip range truncate
-      throw "not yet implemented"
+      throw "Clip not yet implemented"
     | _ => throw s!"[UnaryOp.fromJson?]: Expected one of \{ BitNot, Trigger }, got {j}"
 
 /--
@@ -309,9 +371,10 @@ def UnaryOp.oprFromJson (j : Json) : m UnaryOp := do
     let field ← obj.getStrUnderKeyM "field"
     return .Proj variant field
   | ("IsVariant", obj) =>
-    -- TODO: Skipping data type
+    let dtObj ← obj.getObjValM "datatype"
+    let dt ← pathedNameFromJson dtObj "Path"
     let variant ← obj.getStrUnderKeyM "variant"
-    return .IsVariant variant "hello"
+    return .IsVariant dt variant
   | ("Box", obj) =>
     let typ ← Typ.fromJson obj
     return .Box typ
@@ -370,7 +433,7 @@ def VarBinder.typBindersFromJson (j : Json) : m (List (Ident × Typ)) := do
   arr.toList.mapM (VarBinder.fromJson · "a")
 
 
-mutual /- {Bind, Exp}.fromJson? -/
+mutual /- {Bind, Exp}.fromJson -/
 
 partial def Bind.fromJson (j : Json) : VParser Bind := do
   let obj : Json ← xJsonFromSpanned j
@@ -384,9 +447,9 @@ partial def Bind.fromJson (j : Json) : VParser Bind := do
 
 partial def Exp.fromJson (j : Json) : VParser Exp := do
   -- Expect that exactly one of the enumerated options will be true
-  match ← j["Const", "Var", "Ctor", "Unary", "UnaryOpr", "Binary", "If", "Bind", "Call"] with
+  match ← j["Const", "Var", "VarLoc", "Ctor", "Unary", "UnaryOpr", "Binary", "If", "Bind", "Call"] with
   | ("Const", obj) => do
-    return Exp.Const <| ← Const.fromJson obj
+    return .Const <| ← Const.fromJson obj
 
   | ("Var", obj) =>
     -- Verus gives us an array, where the first element is the identifier
@@ -395,9 +458,14 @@ partial def Exp.fromJson (j : Json) : VParser Exp := do
     addFreeVarIfNotBound ident
     return .Var ident
 
+  | ("VarLoc", obj) =>
+    -- Because `VarLoc` stores a 2-element tuple in Verus, we expect an array
+    let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 2
+    let ident ← arr[0].getStrM  -- Flat identifier, not pathed
+    return .Var ident
+
   | ("Ctor", obj) =>
     let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 3
-
     let pathedName ← pathedNameFromJson arr[0] "Path"
 
     /- TODO: This parsing code doesn't take into account more complicated
@@ -413,12 +481,9 @@ partial def Exp.fromJson (j : Json) : VParser Exp := do
     let parsedFields ← fields.mapM (fun fObj => do
       let name ← Json.getStrUnderKeyM fObj "name"
       -- The expression lies under two `Spanned` objects
-      -- TODO: Might want to use `fromJsonSpanned?` to set the type?
       let a ← Json.getObjValM fObj "a"
-      let x ← Json.getObjValM a "x"
-      let exp ← Exp.fromJson x
-      return (name, exp)
-    )
+      let exp ← fromJsonSpanned a Exp.fromJson
+      return (name, exp))
 
     match ← getDecl? pathedName with
     | none => throw s!"[ExpX.fromJson]: Could not find datatype {pathedName}"
@@ -438,7 +503,11 @@ partial def Exp.fromJson (j : Json) : VParser Exp := do
     let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 2
     let op  ← UnaryOp.oprFromJson arr[0]
     let data ← fromJsonSpanned arr[1] Exp.fromJson
-    return .Unary op data
+
+    -- Erase (Un)Box operations, just return the base type or expression
+    match op with
+    | .Box _ | .Unbox _ => return data
+    | _ => return .Unary op data
 
   | ("Binary", obj) =>
     -- A binary object should be an array with an op and two data elements
@@ -472,87 +541,225 @@ partial def Exp.fromJson (j : Json) : VParser Exp := do
     let exps : Array Exp ← expsJson.mapM (fromJsonSpanned · Exp.fromJson)
     return .Call callFn [] exps.toList
 
-  | s => throw s!"[ExpX.fromJson?]: Expected one of \{ Const, Var, Unary, Binary, If }, got {s}"
-
-  -- | .ok ("Array", obj) =>
-  --   -- Should be an array of expressions
-  --   match obj.getArr? with
-  --   | .error e => throw s!"[ExpX.fromJson?]: {e}"
-  --   | .ok arr => do
-  --     let elems ← arr.mapM (fun i => fromJsonSpanned? i ExpX.fromJson?)
-  --     return ExpX.ArrayLiteral elems
+  | s => throw s!"[ExpX.fromJson?]: Expected an Exp branch string, got {s}"
 
 end /- mutual -/
 
+/--
+  Parses a `Dest` expression, but with the expectation that the result
+  is an identifier. Mainly used to build `Assign`s.
+
+  In Verus, there are several ways to store a variable identifier in an
+  expression (an `Exp`): `Var`, `VarLoc`, `VarAt`, `Loc`, etc.
+
+  This function will parse the underlying `Exp` under the "dest", but
+  will throw an error if the expression is not a variable identifier.
+
+  TODO: Dropped type information?
+-/
+def Dest.fromJson (j : Json) : VParser (Ident × Typ) := do
+  let e ← fromJsonSpanned j Exp.fromJson
+  let ty ← getTyp
+  match e with
+  | .Var i => return (i, ty)
+  | _ => throw s!"Expected a variable expression, got {e}"
+
+
+partial def Stm.fromJson (j : Json) : VParser Stm := do
+  match ← j["Call", "Assert", "AssertBitVector", "AssertQuery", "AssertCompute", "AssertLean",
+    "Assume", "Assign", "DeadEnd", "Return", "BreakOrContinue", "If", "Loop",
+    "OpenInvariant", "ClosureInner", "Block"] with
+
+  | ("Call", _) =>
+    throw "Call not yet implemented"
+
+  | ("Assert", obj) =>
+    let e ← fromJsonSpanned obj Exp.fromJson
+    return .Assert e
+
+  | ("AssertBitVector", obj) =>
+    -- CC TODO: Untested. I haven't looked at an actual JSON yet to see if this matches
+    let arrReq ← obj.getArrUnderKeyM "requires"
+    let requires ← arrReq.mapM (fromJsonSpanned · Exp.fromJson)
+    let arrEns ← obj.getArrUnderKeyM "ensures"
+    let ensures ← arrEns.mapM (fromJsonSpanned · Exp.fromJson)
+    return .AssertBitVector requires.toList ensures.toList
+
+  | ("AssertQuery", obj) =>
+    let stm ← fromJsonSpanned obj Stm.fromJson
+    return .AssertQuery stm
+
+  | ("AssertCompute", obj) =>
+    let e ← fromJsonSpanned obj Exp.fromJson
+    return .AssertCompute e
+
+  | ("AssertLean", obj) =>
+    let e ← fromJsonSpanned obj Exp.fromJson
+    return .AssertLean e
+
+  | ("Assume", obj) =>
+    let e ← fromJsonSpanned obj Exp.fromJson
+    return .Assume e
+
+  | ("Assign", obj) =>
+    -- CC TODO? Dropped type information? Parse RHS first?
+    let lhsObj ← obj.getObjValM "lhs"
+    let (lhs, lhsTy) ← Dest.fromJson <| ← lhsObj.getObjValM "dest"
+    let lhsIsInit ← lhsObj.getBoolUnderKeyM "is_init"
+    let rhsObj ← obj.getObjValM "rhs"
+    let rhs ← fromJsonSpanned rhsObj Exp.fromJson
+    return .Assign lhs lhsTy rhs lhsIsInit
+
+  | ("DeadEnd", obj) =>
+    let stm ← fromJsonSpanned obj Stm.fromJson
+    return .DeadEnd stm
+
+  | ("Return", _) =>
+    return .Return (Exp.Const <| Const.Bool true)
+
+  | ("BreakOrContinue", _) =>
+    throw "BreakOrContinue not yet implemented"
+
+  | ("If", obj) =>
+    -- The three parts of an if-statement are stored in a Verus tuple
+    -- So this should be an array of three elements
+    let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 3
+    let cond ← fromJsonSpanned arr[0] Exp.fromJson
+    let branch₁ ← fromJsonSpanned arr[1] Stm.fromJson
+
+    -- If the option in Verus is `Some`, it's an object; otherwise, it's `null`
+    match arr[2] with
+    | .null => return .If cond branch₁ none
+    | x =>
+      let branch₂ ← fromJsonSpanned x Stm.fromJson
+      return .If cond branch₁ (some branch₂)
+
+  | ("Loop", obj) =>
+    throw "Loop not yet implemented"
+
+  | ("OpenInvariant", obj) =>
+    let stm ← fromJsonSpanned obj Stm.fromJson
+    return .OpenInvariant stm
+
+  | ("ClosureInner", obj) =>
+    let stm ← fromJsonSpanned obj Stm.fromJson
+    return .ClosureInner stm
+
+  | ("Block", obj) =>
+    -- We enforce that the block has at least one statement
+    let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 1
+    let stmts ← arr.mapM (do Stm.fromJson <| ← xJsonFromSpanned ·)
+    return .Block stmts.toList
+
+  | s => throw s!"[Stm.fromJson?]: Expected one of many Stm options, got {s}"
+
+
 --------------------------------------------------------------------------------
 
-def getSpecFnName (j : Json) : m String := do
-  let nameObj ← j.getObjValByPathM ["name"]
-  pathedNameFromJson nameObj
-
-def SpecFn.fromJson (j : Json) : VParser Unit := do
-  -- Parse the function name
-  let name ← getSpecFnName j
-
-  -- Parse the arguments
+def fnParseArgs (j : Json) : VParser (List (Ident × Typ)) := do
   let varsJson ← j.getArrUnderKeyM "pars"
-  let vars ← coeWithState <| varsJson.foldlM (init := ∅) (fun vars v => do
-    let ⟨i, ty⟩ ← VarBinder.fromJson <| ← xJsonFromSpanned v
-    return Std.HashMap.insert vars i ty
-  )
-
-  -- Parse the return type
-  let returnTypeJson : Json ← j.getObjValM "ret"
-  let ⟨_, ty⟩ ← VarBinder.fromJson <| ← xJsonFromSpanned returnTypeJson
-  let returnType : Typ := ty
-
-  -- Parse the body as an expression
-  let bodyObj : Json ← j.getObjValByPath ["axioms", "spec_axioms", "body_exp"]
-  match fromJsonSpanned bodyObj Exp.fromJson {
-      expectedType := returnType
-      freeVars := vars
-      boundVars := ∅
-      decls := ∅ -- CC: TODO this probably gets accumulated as we parse?
-    } with
-  | .error e _ => throw e
-  | .ok body _ => do
-    addDecl <| SpecFn.mk name vars returnType body
-
-
-def Struct.fromJson (j : Json) : VParser Unit := do
-  let name ← pathedNameFromNameJson j "Path"
 
   /-
-    The variants are stored in an array because Verus places structs
+    For whatever reason, Verus decides to serialize empty parameter lists
+    with a single element with the name `["no%param", "AirLocal"]`.
+    We filter out those (or rather, that one) parameters here.
+  -/
+  let varsJson := varsJson.filter (fun obj =>
+    match obj.getArrByPath? ["x", "name"] with
+    | .ok arr =>
+      if h : arr.size > 0 then
+        match arr[0].getStr? with
+        | .ok name => name != "no%param"
+        | _ => true
+      else
+        false
+    | _ => true)
+
+  let vars ← restoreCurrentBoundVarsAfter <| varsJson.mapM (fun v => do
+    let ⟨i, ty⟩ ← VarBinder.fromJson <| ← xJsonFromSpanned v
+    -- We build up the bound variables as we go (in case of dependent typing)
+    pushBoundVar i ty
+    return (i, ty))
+  return vars.toList
+
+
+def SpecFn.fromJson (j : Json) : VParser SpecFn := do
+  let name ← pathedNameFromNameJson j
+  let args ← fnParseArgs j
+
+  -- TODO: This ignores other info about the return value, (a `Par` in Verus)
+  let returnType ← Typ.fromJson <| ← j.getObjValByPathM ["ret", "x", "typ"]
+  setTyp returnType
+
+  -- Parse the body as an expression
+  -- For spec functions, this expression is stored in the axioms
+  let bodyObj ← j.getObjValByPath ["axioms", "spec_axioms", "body_exp"]
+  let bodyExp ← fromJsonSpanned bodyObj Exp.fromJson
+  return SpecFn.mk name args returnType bodyExp
+
+
+def ProofFn.fromJson (j : Json) : VParser ProofFn := do
+  let name ← pathedNameFromNameJson j
+  let args ← fnParseArgs j
+
+  let requiresObj ← j.getArrByPathM ["exec_proof_check", "reqs"]
+  let requires ← requiresObj.mapM (fromJsonSpanned · Exp.fromJson)
+
+  -- TODO: This ignores other postcondition information
+  let ensuresObj ← j.getArrByPathM ["exec_proof_check", "post_condition", "ens_exps"]
+  let ensures ← ensuresObj.mapM (fromJsonSpanned · Exp.fromJson)
+
+  -- Parse the body as an expression
+  -- For proof functions, this expression is stored in the "exec_proof_check"
+  let bodyObj ← j.getObjValByPathM ["exec_proof_check", "body", "x"]
+  let bodyStm ← Stm.fromJson bodyObj
+  return ProofFn.mk name args requires.toList ensures.toList bodyStm
+
+
+def typeParamsFromJson (j : Json) : m (List Ident) := do
+  let typeParamsArr ← j.getArrUnderKeyM "typ_params"
+  return Array.toList <| ← typeParamsArr.mapM (fun _ => do
+    -- TODO: These are going to be tuples, which probably get serialized as an array
+    let ident := "implementMePlease"
+    return ident)
+
+
+def dataFieldsForVariantFromJson (j : Json) : m (Ident × Typ) := do
+  let name ← j.getStrUnderKeyM "name"
+  -- The other two fields are `Mode` and `Visibility`, which we ignore
+  let ⟨fArr, _⟩ ← j.getArrUnderKeyWithSizeGeM "a" 3
+  let typ ← Typ.fromJson fArr[0]
+  return (name, typ)
+
+
+def Struct.fromJson (j : Json) : VParser Struct := do
+  let name ← pathedNameFromNameJson j "Path"
+  let typeParams ← typeParamsFromJson j
+
+  /-
+    Parse the fields of the struct, under the singleton array "variants".
+
+    The "variants" are stored in an array because Verus places structs
     and enums into the same `DatatypeX` object. For structs, there
-    is going to be exactly one variant in the array, with its fields
-    stored in the `fields` field under the 0th entry of the outer array.
+    is exactly one variant in the array (of the same base name as the struct),
+    with its fields stored in `fields` under the 0th entry of the outer array.
   -/
   let ⟨fieldsArr, _⟩ ← j.getArrUnderKeyWithSizeGeM "variants" 1
   let fieldsArr ← fieldsArr[0].getArrUnderKeyM "fields"
-  let fields ← fieldsArr.mapM (fun f => do
-    let name ← f.getStrUnderKeyM "name"
-    let ⟨fArr, _⟩ ← f.getArrUnderKeyWithSizeGeM "a" 3
-    let typ ← Typ.fromJson fArr[0]
-    return (name, typ))
-  addDecl <| Struct.mk name [] fields.toList
+  let fields ← fieldsArr.mapM dataFieldsForVariantFromJson
+  return Struct.mk name typeParams fields.toList
 
 
 def EnumField.fromJson (j : Json) : m EnumField := do
   let name ← j.getStrUnderKeyM "name"
   let fieldsObj ← j.getArrUnderKeyM "fields"
-  let fields ← fieldsObj.mapM (fun f => do
-    let name ← f.getStrUnderKeyM "name"
-    -- CC: TODO for whatever reason, the type is stored in an array
-    -- CC: We default to taking the first type in this array
-    let ⟨tyArr, _⟩ ← f.getArrUnderKeyWithSizeGeM "a" 1
-    let ty ← Typ.fromJson tyArr[0]
-    return (name, ty))
+  let fields ← fieldsObj.mapM dataFieldsForVariantFromJson
   return EnumField.mk name fields.toList
 
 
-def Enum.fromJson (j : Json) : VParser Unit := do
+def Enum.fromJson (j : Json) : VParser Enum := do
   let name ← pathedNameFromNameJson j "Path"
+  let typeParams ← typeParamsFromJson j
 
   /-
     The variants of an enum are stored directly in the `variants` field.
@@ -560,18 +767,24 @@ def Enum.fromJson (j : Json) : VParser Unit := do
   -/
   let ⟨fields, _⟩ ← j.getArrUnderKeyWithSizeGeM "variants" 1
   let fields ← fields.mapM EnumField.fromJson
-  addDecl <| Enum.mk name fields.toList
+  return Enum.mk name typeParams fields.toList
 
 
 /--
   Calls the appropriate `fromJson` helper function based on the
   value under the `"dt_type"` key.
 -/
-def datatypeFromJson (j : Json) : VParser Unit := do
+def datatypeFromJson (j : Json) : VParser Decl := do
   let dtType ← j.getStrUnderKeyM "dt_type"
   match dtType with
-  | "Enum" => Enum.fromJson j
-  | "Struct" => Struct.fromJson j
+  | "Enum" =>
+    let enum ← Enum.fromJson j
+    let enumAsDecl := Decl.enum enum
+    return enumAsDecl
+  | "Struct" =>
+    let struct ← Struct.fromJson j
+    let structAsDecl := Decl.struct struct
+    return structAsDecl
   | _ => throw s!"Unsupported datatype: {dtType}"
 
 
@@ -586,7 +799,18 @@ def datatypeFromJson (j : Json) : VParser Unit := do
   This function will try to parse an assert first, and if that fails,
   tries to parse a function.
 -/
-partial def Decl.fromJson? (j : Json) : VParser Decl := do
+partial def Decl.fromJson (j : Json) : VParser Decl := do
+  -- Each `Decl` JSON has a `DeclType`, which allows us
+  -- to call the appropriate helper function
+  let declObj ← j.getObjValM "x"
+  let decl ←
+    match ← j.getStrUnderKeyM "DeclType" with
+    | "Datatype" => datatypeFromJson declObj
+    | "SpecFn" => SpecFn.fromJson declObj
+    | "ProofFn" => ProofFn.fromJson declObj
+    | s => throw s!"Unexpected declaration type: {s}"
+/-
+
   match ← j["Assert", "FuncCheckSst"] with
   | ("Assert", (obj : Json)) =>
     -- First, parse the data types (structs and enums)
@@ -638,17 +862,30 @@ partial def Decl.fromJson? (j : Json) : VParser Decl := do
     -- dbg_trace s!"decl.pp: {decl.pp}"
     return decl
 
-  |  _ => throw "[Decl.fromJson?]: Expected one of { Assert, FuncCheckSst }, got something else"
+  |  _ => throw "[Decl.fromJson?]: Expected one of { Assert, FuncCheckSst }, got something else" -/
+
+
+partial def Decls.fromJson? (j : Json) : VParser (List Decl) := do
+  -- top-level object is an array under a "decls" key
+  let declsArr ← j.getArrUnderKeyM "decls"
+
+  /-
+    We monadically extract the `Decl` in each JSON object, from left to right.
+    Note that we accumulate copies of these `Decls` in the state as we go
+    in the hash maps, but we are assuming that the declarations are given
+    to us in a good order, so there is no need to extract the objects
+    back from the hash maps at the end.
+  -/
+  return Array.toList <| ← declsArr.mapM (fun j => do
+    let decl ← Decl.fromJson j
+    addDecl decl
+    return decl)
 
 partial def Decls.fromFile? (path : String) : IO (Except String (List Decl)) := do
   let jsonStr ← IO.FS.readFile path
   let json ← IO.ofExcept <| Json.parse jsonStr
-  match Decl.fromJson? json default with
-  | .ok d st =>
-    let decls := st.decls.values
-    let dts := decls.filter (fun | .struct _ | .enum _ => true | _ => false)
-    let fns := decls.filter (fun | .specFn _ => true | _ => false)
-    return .ok (dts ++ fns ++ [d])
+  match Decls.fromJson? json default with
+  | .ok decls _ => return .ok decls
   | .error e _ => return .error e
 
 end VerusLean

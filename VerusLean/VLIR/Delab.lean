@@ -22,7 +22,7 @@ open Lean PrettyPrinter
 unsafe def Decl.toFormat (ds : List Decl) : IO (Except String String) := do
   searchPathRef.set compile_time_search_path%
   let res : Except Exception Format ← Lean.withImportModules
-    (imports := #[{ module := `Init : Import }])
+    (imports := #[{ module := `Init : Import }, { module := `VerusLean.Basic : Import }])
     (opts := Options.empty)
     (trustLevel := 0)
     (fun env => EIO.toIO' <|
@@ -48,9 +48,9 @@ unsafe def Decl.toFormat (ds : List Decl) : IO (Except String String) := do
               Note: Wojciech claims that lifting into `CommandElabM` multiple
               times causes bad things to happen, so do it only once.
             -/
-            let _ ← Lean.liftCommandElabM <| syns.mapM (fun syn => do
+            /-let _ ← Lean.liftCommandElabM <| syns.mapM (fun syn => do
               Elab.Command.elabCommandTopLevel syn.raw
-            )
+            ) -/
 
             /-
               Now ask Lean for a pretty-printed version of the command syntax.

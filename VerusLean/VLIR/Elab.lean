@@ -1,19 +1,40 @@
 import VerusLean.VLIR.Defs
 import VerusLean.VLIR.Pp
+import VerusLean.Tactic.ByVerus
 import Lean.Elab
 
 namespace VerusLean
 
+/-
+  TODOs:
+
+  - Develop a method of parenthesizing expressions/terms as they are built
+    (especially the binary ones) that takes into account the underlying
+    precedences of the sub-expressions. For example, (a + b) * (c + d)
+    currently gets elaborated as a + (b * c) + d, since multiplication
+    has higher precedence than addition.
+    - One solution is to return a pair of `(Term × Precedence)`, or to operate
+      in a wrapper monad for `MetaM` that has a precendence.
+-/
+
 open Lean Syntax Elab Command Parser Term Parser.Command
+
+private def trueIdent : Lean.Ident := mkIdent ``true
+private def falseIdent : Lean.Ident := mkIdent ``false
+private def TrueIdent : Lean.Ident := mkIdent ``True
+private def FalseIdent : Lean.Ident := mkIdent ``False
 
 def Ident.toIdent (i : Ident) : MetaM Lean.Ident :=
   return mkIdent (.mkSimple i)
 
-def Idents.toIdent (i : Idents) : MetaM (Array Lean.Ident) :=
-  i.mapM Ident.toIdent
-
 def Typ.toTerm (ty : Typ) : MetaM Term := do
   match ty with
+  | .Unit => return mkIdent ``_root_.Unit
+  | .Tuple ty₁ ty₂ => do
+    let ty₁ ← ty₁.toTerm
+    let ty₂ ← ty₂.toTerm
+    -- CC: TODO Dependent typing?
+    `($ty₁ × $ty₂)
   | .Bool => return mkIdent ``_root_.Bool
   | .Int => return mkIdent ``_root_.Int
   | .Nat => return mkIdent ``_root_.Nat
@@ -24,13 +45,17 @@ def Typ.toTerm (ty : Typ) : MetaM Term := do
   | .Array t => do
     let t ← t.toTerm
     `(Array $t)
-  | .Struct name params =>
+  | .TypParam name =>
+    let nameAsIdent ← name.toIdent
+    return nameAsIdent
+  | .Struct name params
+  | .Enum name params =>
     let nameAsIdent ← name.toIdent
     let params := params.attach
     params.foldlM (init := nameAsIdent) (fun s ⟨ty, _⟩ => do
       let tyTerm ← ty.toTerm
-      `($s:term $tyTerm:term)
-    )
+      `($s:term $tyTerm:term))
+
 
 def Const.toTerm (c : Const) : MetaM Term := do
   match c with
@@ -38,8 +63,8 @@ def Const.toTerm (c : Const) : MetaM Term := do
     -- See Lean.Init.Meta, for Quote Bool and mkCIdent
     -- No way to take the boolean directly?
     match b with
-    | true => return mkIdent ``true
-    | false => return mkIdent ``false
+    | true => return trueIdent
+    | false => return falseIdent
   | Const.Int i => return Syntax.mkNumLit s!"{i}"
   | Const.StrSlice _ => return mkIdent ``StrSlice
   | Const.Char _ => return mkIdent ``Char
@@ -73,14 +98,17 @@ def UnaryOp.toTerm (u : UnaryOp) (e : Term) : MetaM Term := do
   | .Not => `(¬ ($e))
   | .BitNot _ => `(~~~ $e)
   | .Trigger => `($e) -- Ignore trigger information when constructing terms
-  | .Proj dt field =>
-    let dtName := Name.mkSimple dt
-    let fieldName := mkIdent <| Name.str dtName field
-    `(($fieldName:ident $e))
-  | .IsVariant _ _ =>
-    `(true && true)
-  | .Box _ => `($e)
-  | .Unbox _ => `($e)
+  | .Proj _ field =>
+    let field ← field.toIdent
+    `($e.$field)
+  | .IsVariant dt variant =>
+    let dt ← dt.toIdent
+    let variant ← variant.toIdent
+    `(match $e:term with
+      | $dt.$variant .. => $trueIdent
+      | _ => $falseIdent)
+  | .Box _ => `($e)   -- Ignore boxed-type information when constructing terms
+  | .Unbox _ => `($e) -- Ignore boxed-type information when constructing terms
   | _ => throwError "unsupported unary op {repr u}"
 
 def BinaryOp.toTerm (b : BinaryOp) (lhs rhs : Term) : MetaM Term := do
@@ -115,11 +143,12 @@ mutual
 -/
 partial def Bind.toTerm (b : Bind) (t : Term) : MetaM Term := do
   match b with
-  | .Let v e =>
+  | .Let v ty e =>
     let v ← v.toIdent
+    let ty ← ty.toTerm
     let e ← e.toTerm
     -- See `letMVar` in `Lean.Parser.Term.lean`
-    `(let $v := $e; $t)
+    `(let $v : $ty := $e; $t)
   | .Quant q vars =>
     match q with
     | .Forall =>
@@ -200,6 +229,70 @@ partial def Exp.toTerm (e : Exp) : MetaM Term := do
 
 end /- mutual -/
 
+def addToTacticOption (acc : Option (TSyntax `tactic)) (tac : TSyntax `tactic) : MetaM (TSyntax `tactic) := do
+  match acc with
+  | none => return tac
+  | some acc => `(tactic| ($acc:tactic; $tac:tactic))
+
+partial def Stm.toTerm (stm : Stm) : MetaM (TSyntax `tactic) := do
+  match stm with
+  | .Assert e
+  | .Assume e =>
+    let e ← e.toTerm
+    `(tactic| have : $e := by verus)
+
+  | .AssertBitVector _ ens =>
+    -- TODO: Skipping requires
+    match ens with
+    | [] => `(tactic| skip) -- CC: Really, this should be an error
+    | [e] =>
+      let e ← e.toTerm
+      `(tactic| have : $e := by verus)
+    | (e :: es) =>
+      let e ← e.toTerm
+      let ens ← es.foldlM (init := e) (fun acc e => do
+        let e ← e.toTerm
+        `($acc:term ∧ $e:term))
+      `(tactic| have : $ens := by verus)
+
+  | .AssertLean e =>
+    let e ← e.toTerm
+    `(tactic| have : $e := by sorry)
+
+  | .Assign lhs lhsTy rhs _ =>
+    let lhs ← lhs.toIdent
+    let lhsTy ← lhsTy.toTerm
+    let rhs ← rhs.toTerm
+    `(tactic| let $lhs : $lhsTy := $rhs)
+
+  | .DeadEnd stm => stm.toTerm
+
+  | .Block stms =>
+    let stms ← stms.toArray.mapM (fun s => do
+      let s ← s.toTerm
+      `(tactic| $s:tactic))
+
+    -- Filter our those tactics that are trivial (`skip`)
+    -- This is mainly due to us not implementing other branches here
+    -- We explicitly type this new array to keep the syntax category
+    let stms : Array (TSyntax `tactic) := stms.filter (fun tac =>
+      match tac with
+      | `(tactic| skip) => false
+      | _ => true)
+
+    `(tactic| ($stms:tactic*))
+
+    -- CC: Alternate method with slightly less well-formatted parentheses
+    /-
+    match ← stms.foldlM (init := none) (fun acc stm => do
+      let tac ← stm.toTerm
+      return some <| ← addToTacticOption acc tac
+    ) with
+    | none => `(tactic| skip)
+    | some tac => return tac -/
+
+  | _ => `(tactic| skip)
+
 /--
   Makes a single explicit binder from an array of identifiers and a type.
 
@@ -238,53 +331,82 @@ private def makeExplicitBinders (as : Array (Ident × Typ)) : MetaM (TSyntaxArra
     if as.size = 0 then return #[]
     else throwError "empty array"
 
+
+def Assertion.toCommand (a : Assertion) : MetaM (TSyntax `command) := do
+  let ⟨name, decls, body⟩ := a
+  let ident ← name.toIdent
+  let args ← makeExplicitBinders decls.toArray
+  let eTerm ← body.toTerm
+  `(command| theorem $ident $args:bracketedBinder* : $eTerm := by sorry )
+
+
+def SpecFn.toCommand (f : SpecFn) : MetaM (TSyntax `command) := do
+  let ⟨name, inputs, returnType, body⟩ := f
+  let ident ← name.toIdent
+  let args ← makeExplicitBinders inputs.toArray
+  let returnType ← returnType.toTerm
+  let body ← body.toTerm
+  `(command| def $ident $args:bracketedBinder* : $returnType := $body )
+
+def ProofFn.toCommand (f : ProofFn) : MetaM (TSyntax `command) := do
+  let ⟨name, inputs, requires, ensures, body⟩ := f
+  let ident ← name.toIdent
+  let args ← makeExplicitBinders inputs.toArray
+  -- CC: TODO requires and ensures (currently disallowed by Verus)
+  let body ← body.toTerm
+  if ensures.length = 0 then
+    `(command| theorem $ident $args:bracketedBinder* : TrivialProofFn := by
+      $body
+      trivial)
+  else
+    `(command| theorem $ident $args:bracketedBinder* : 5 = 5 := by
+      $body
+      sorry)
+
+def Struct.toCommand (s : Struct) : MetaM (TSyntax `command) := do
+  let ⟨name, params, fields⟩ := s
+  let nameAsIdent ← name.toIdent
+  -- TODO: Skipping parameters for now
+  let fields ← fields.toArray.mapM
+    (fun ⟨fieldName, fieldTy⟩ => do
+      let field ← fieldName.toIdent
+      let ty ← fieldTy.toTerm
+      `(structSimpleBinder| $field:ident : $ty))
+  `(command| structure $nameAsIdent:ident where $fields:structSimpleBinder* )
+
+
+def Enum.toCommand (e : Enum) : MetaM (TSyntax `command) := do
+  let ⟨name, _, fields⟩ := e
+  -- TODO: Type parameters
+  let nameAsIdent ← name.toIdent
+  let fields ← fields.toArray.mapM
+    (fun ⟨variantName, data⟩ => do
+      let variant ← variantName.toIdent
+      let binders ← makeExplicitBinders data.toArray
+      `(ctor| | $variant:ident $binders:bracketedBinder* ))
+  `(command| inductive $nameAsIdent:ident where $fields:ctor* )
+
+
+def FuncCheckSst.toCommand (f : FuncCheckSst) : MetaM (TSyntax `command) := do
+  let ⟨name, reqs, enss, decls⟩ := f
+  let ident ← name.toIdent
+  let reqs : Array Term ← reqs.toArray.mapM (·.toTerm)
+  let enss : Array Term ← enss.toArray.mapM (·.toTerm)
+  let init : Term := trueIdent
+  let req : Term ← reqs.foldlM (init := init) (fun acc e => `($acc && ($e)))
+  let ens : Term ← enss.foldlM (init := init) (fun acc e => `($acc && ($e)))
+  let body ← `( $req → $ens )
+  let args ← makeExplicitBinders decls.toArray
+  `(command| theorem $ident $args:bracketedBinder* : $body := by sorry )
+
+
 def Decl.toTerm (d : Decl) : MetaM (TSyntax `command) := do
   match d with
-  | .assertion ⟨name, decls, body⟩ =>
-    let ident ← name.toIdent
-    let args ← makeExplicitBinders decls.toArray
-    let eTerm : Term ← body.toTerm
-    `(command| theorem $ident $args:bracketedBinder* : $eTerm := by sorry )
-
-  | .specFn ⟨name, inputs, returnTy, body⟩ =>
-    let ident ← name.toIdent
-    let args ← makeExplicitBinders inputs.toArray
-    let returnType : Term ← returnTy.toTerm
-    let body : Term ← body.toTerm
-    `(command| def $ident $args:bracketedBinder* : $returnType := $body )
-
-  | .struct ⟨name, params, fields⟩ =>
-    let nameAsIdent ← name.toIdent
-    -- TODO: Skipping parameters for now
-    let fields ← fields.toArray.mapM
-      (fun ⟨fieldName, fieldTy⟩ => do
-        let field ← fieldName.toIdent
-        let ty ← fieldTy.toTerm
-        `(structSimpleBinder| $field:ident : $ty))
-    `(command| structure $nameAsIdent:ident where $fields:structSimpleBinder* )
-
-  | .enum ⟨name, fields⟩ =>
-    let nameAsIdent ← name.toIdent
-    let fields ← fields.toArray.mapM
-      (fun ⟨variantName, data⟩ => do
-        let variant ← variantName.toIdent
-        let data ← data.toArray.mapM (fun ⟨_, ty⟩ => do
-          let ty ← ty.toTerm
-          `($ty)
-        )
-        `(ctor| | $variant:ident ))
-
-    `(command| inductive $nameAsIdent:ident where $fields:ctor* )
-
-  | .func ⟨name, reqs, enss, decls⟩ =>
-    let ident ← name.toIdent
-    let reqs : Array Term ← reqs.toArray.mapM (·.toTerm)
-    let enss : Array Term ← enss.toArray.mapM (·.toTerm)
-    let init : Term := mkIdent ``_root_.Bool.true
-    let req : Term ← reqs.foldlM (init := init) (fun acc e => `($acc && ($e)))
-    let ens : Term ← enss.foldlM (init := init) (fun acc e => `($acc && ($e)))
-    let body ← `( $req → $ens )
-    let args ← makeExplicitBinders decls.toArray
-    `(command| theorem $ident $args:bracketedBinder* : $body := by sorry )
+  | .assertion a => a.toCommand
+  | .specFn f => f.toCommand
+  | .proofFn f => f.toCommand
+  | .struct s => s.toCommand
+  | .enum e => e.toCommand
+  | .func f => f.toCommand
 
 end VerusLean
