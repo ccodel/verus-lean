@@ -257,7 +257,7 @@ partial def Stm.toTerm (stm : Stm) : MetaM (TSyntax `tactic) := do
 
   | .AssertLean e =>
     let e ← e.toTerm
-    `(tactic| have : $e := by sorry)
+    `(tactic| have : $e := by auto? )
 
   | .Assign lhs lhsTy rhs _ =>
     let lhs ← lhs.toIdent
@@ -337,7 +337,7 @@ def Assertion.toCommand (a : Assertion) : MetaM (TSyntax `command) := do
   let ident ← name.toIdent
   let args ← makeExplicitBinders decls.toArray
   let eTerm ← body.toTerm
-  `(command| theorem $ident $args:bracketedBinder* : $eTerm := by sorry )
+  `(command| theorem $ident $args:bracketedBinder* : $eTerm := by auto? )
 
 
 def SpecFn.toCommand (f : SpecFn) : MetaM (TSyntax `command) := do
@@ -361,7 +361,7 @@ def ProofFn.toCommand (f : ProofFn) : MetaM (TSyntax `command) := do
   else
     `(command| theorem $ident $args:bracketedBinder* : 5 = 5 := by
       $body
-      sorry)
+      auto? )
 
 def Struct.toCommand (s : Struct) : MetaM (TSyntax `command) := do
   let ⟨name, params, fields⟩ := s
@@ -397,7 +397,7 @@ def FuncCheckSst.toCommand (f : FuncCheckSst) : MetaM (TSyntax `command) := do
   let ens : Term ← enss.foldlM (init := init) (fun acc e => `($acc && ($e)))
   let body ← `( $req → $ens )
   let args ← makeExplicitBinders decls.toArray
-  `(command| theorem $ident $args:bracketedBinder* : $body := by sorry )
+  `(command| theorem $ident $args:bracketedBinder* : $body := by auto? )
 
 
 def Decl.toTerm (d : Decl) : MetaM (TSyntax `command) := do

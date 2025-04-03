@@ -22,7 +22,7 @@ open Lean PrettyPrinter
 unsafe def Decl.toFormat (ds : List Decl) : IO (Except String String) := do
   searchPathRef.set compile_time_search_path%
   let res : Except Exception Format ← Lean.withImportModules
-    (imports := #[{ module := `Init : Import }, { module := `VerusLean.Basic : Import }])
+    (imports := #[{ module := `Init }, { module := `VerusLean.Basic }, { module := `VerusLean.Tactic.ByVerus }])
     (opts := Options.empty)
     (trustLevel := 0)
     (fun env => EIO.toIO' <|

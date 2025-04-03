@@ -10,4 +10,15 @@ open Lean Elab
 macro (name := byVerus) "verus" : tactic =>
   `(tactic| sorry)
 
+-- Stand-in automation tactic to discharge trivial proofs.
+macro (name := byAuto) "auto?" : tactic => `(tactic|
+    first
+    | trivial
+    | rfl
+    | assumption
+    | simp
+    | omega
+    | sorry
+  )
+
 end VerusLean
