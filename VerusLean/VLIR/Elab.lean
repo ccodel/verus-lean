@@ -17,7 +17,7 @@ namespace VerusLean
       in a wrapper monad for `MetaM` that has a precendence.
 -/
 
-open Lean Syntax Elab Command Parser Term Parser.Command
+open Lean Syntax Elab Command Parser Term Parser.Command Parser.Term
 
 private def trueIdent : Lean.Ident := mkIdent ``true
 private def falseIdent : Lean.Ident := mkIdent ``false
@@ -182,38 +182,52 @@ partial def Exp.toTerm (e : Exp) : MetaM Term := do
   match e with
   | .Const c => c.toTerm
   | .Var i => i.toIdent
+
   | .StructCtor _ fields =>
     -- For each field, make it a `structInstField`
     let fields ← fields.toArray.mapM (fun ⟨field, exp⟩ => do
       let fieldIdent ← field.toIdent
       let expTerm ← Exp.toTerm exp
-      `(structInstField| $fieldIdent:ident := $expTerm )
-    )
+      `(structInstField| $fieldIdent:ident := $expTerm ))
     `( { $fields:structInstField* } )
+
   | .EnumCtor dt variant data =>
     let dtName := Name.mkStr .anonymous dt
     let i := mkIdent <| Name.mkStr dtName variant
-    let data ← data.toArray.mapM (fun ⟨_, e⟩ => do
-      --let di ← di.toIdent
+    let data := data.toArray
+    let numDataVals := data.size
+    let identAsTerm ← `($i:ident)
+
+    -- Build up the application of the data elements to the constructor
+    data.foldlM (init := identAsTerm) (fun acc ⟨i, e⟩ => do
+      let i ← i.toIdent
       let e ← e.toTerm
-      `($e)
-    )
-    `( $i:ident $data:term* )
+      -- Verus tells us not to expect the data elements to be
+      -- serialized in order, so we need to name them if there's more than one
+      if numDataVals = 1 then
+        `($acc $e)
+      else
+        `($acc ($i:ident := $e:term)))
+
   | .Unary op e =>
     let e ← e.toTerm
     op.toTerm e
+
   | .Binary op lhs rhs =>
     let lhs ← lhs.toTerm
     let rhs ← rhs.toTerm
     op.toTerm lhs rhs
+
   | .If cond b₁ b₂ =>
     let cond ← cond.toTerm
     let b₁ ← b₁.toTerm
     let b₂ ← b₂.toTerm
     `(if $cond then $b₁ else $b₂)
+
   | .Bind bind exp =>
     let exp ← exp.toTerm
     bind.toTerm exp
+
   | .Call fn _ exps =>
     let fnIdent ← fn.toIdent
     let fn ← `(term| $fnIdent)
@@ -224,8 +238,7 @@ partial def Exp.toTerm (e : Exp) : MetaM Term := do
       if e.height = 1 then
         `($acc:term $t:term)
       else
-        `($acc:term ($t:term))
-    )
+        `($acc:term ($t:term)))
 
 end /- mutual -/
 
