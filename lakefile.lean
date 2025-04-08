@@ -15,3 +15,4 @@ lean_exe VerusParser where
   root := `VerusLean.VLIRParser
 
 --require batteries from git "https://github.com/leanprover-community/batteries" @ "master"
+require "leanprover-community" / "batteries" @ git "main"
