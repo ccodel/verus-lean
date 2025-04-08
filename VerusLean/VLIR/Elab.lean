@@ -23,6 +23,7 @@ private def trueIdent : Lean.Ident := mkIdent ``true
 private def falseIdent : Lean.Ident := mkIdent ``false
 private def TrueIdent : Lean.Ident := mkIdent ``True
 private def FalseIdent : Lean.Ident := mkIdent ``False
+private def ArrayIdent : Lean.Ident := mkIdent ``Array
 
 def Ident.toIdent (i : Ident) : MetaM Lean.Ident :=
   return mkIdent (.mkSimple i)
@@ -44,7 +45,7 @@ def Typ.toTerm (ty : Typ) : MetaM Term := do
   | .StrSlice => throwError "StrSlice not supported"
   | .Array t => do
     let t ← t.toTerm
-    `(Array $t)
+    `($ArrayIdent $t)
   | .TypParam name =>
     let nameAsIdent ← name.toIdent
     return nameAsIdent
@@ -182,6 +183,17 @@ partial def Exp.toTerm (e : Exp) : MetaM Term := do
   match e with
   | .Const c => c.toTerm
   | .Var i => i.toIdent
+  | .Call fn _ exps =>
+    let fnIdent ← fn.toIdent
+    let fn ← `(term| $fnIdent)
+    exps.foldlM (init := fn) (fun acc e => do
+      let t ← e.toTerm
+      -- Only include parentheses if the term is nontrivial
+      -- (i.e., not a variable or a constant)
+      if e.height = 1 then
+        `($acc:term $t:term)
+      else
+        `($acc:term ($t:term)))
 
   | .StructCtor _ fields =>
     -- For each field, make it a `structInstField`
@@ -228,17 +240,11 @@ partial def Exp.toTerm (e : Exp) : MetaM Term := do
     let exp ← exp.toTerm
     bind.toTerm exp
 
-  | .Call fn _ exps =>
-    let fnIdent ← fn.toIdent
-    let fn ← `(term| $fnIdent)
-    exps.foldlM (init := fn) (fun acc e => do
-      let t ← e.toTerm
-      -- Only include parentheses if the term is nontrivial
-      -- (i.e., not a variable or a constant)
-      if e.height = 1 then
-        `($acc:term $t:term)
-      else
-        `($acc:term ($t:term)))
+  | .ArrayLiteral es =>
+    let es ← es.toArray.mapM (fun e => do
+      let e ← e.toTerm
+      `(term| $e:term))
+    `(#[ $es:term,* ])
 
 end /- mutual -/
 

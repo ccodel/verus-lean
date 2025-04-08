@@ -177,8 +177,15 @@ partial def Typ.fromJson (j : Json) : m Typ := do
     | ("Primitive", obj) =>
       let t ← obj.getArrM
       match t.get? 0 with
-      | some "Array" => throw "unsupported primitive type Array"
-      | some _ => throw "unsupported primitive type"
+      | some "Array" =>
+        -- In Verus, arrays are specified by their type and length
+        -- We drop the length requirement (for now TODO)
+        -- This type is in the first element of the array in the first index of `t`
+        let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 2
+        let ⟨arrTyp, _⟩ ← arr[1].getArrWithSizeGeM 2
+        let typ ← Typ.fromJson arrTyp[0]
+        return .Array typ
+      | some j => throw s!"unsupported primitive type: {j}"
       | none => throw s!"error, json: {obj}"
 
     | ("Int", obj) =>
@@ -447,7 +454,7 @@ partial def Bind.fromJson (j : Json) : VParser Bind := do
 
 partial def Exp.fromJson (j : Json) : VParser Exp := do
   -- Expect that exactly one of the enumerated options will be true
-  match ← j["Const", "Var", "VarLoc", "Ctor", "Unary", "UnaryOpr", "Binary", "If", "Bind", "Call"] with
+  match ← j["Const", "Var", "VarLoc", "Call", "Ctor", "Unary", "UnaryOpr", "Binary", "If", "Bind", "ArrayLiteral"] with
   | ("Const", obj) => do
     return .Const <| ← Const.fromJson obj
 
@@ -463,6 +470,15 @@ partial def Exp.fromJson (j : Json) : VParser Exp := do
     let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 2
     let ident ← arr[0].getStrM  -- Flat identifier, not pathed
     return .Var ident
+
+  | ("Call", obj) =>
+    -- Should be an object with a function name and arguments
+    -- The function's name is the 0th element, the arguments the 2nd element (an array)
+    let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 3
+    let callFn ← CallFun.fromJson arr[0]
+    let expsJson ← arr[2].getArrM
+    let exps : Array Exp ← expsJson.mapM (fromJsonSpanned · Exp.fromJson)
+    return .Call callFn [] exps.toList
 
   | ("Ctor", obj) =>
     let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 3
@@ -532,14 +548,11 @@ partial def Exp.fromJson (j : Json) : VParser Exp := do
     let exp ← withBoundVars bind.idents (fromJsonSpanned arr[1] Exp.fromJson)
     return .Bind bind exp
 
-  | ("Call", obj) =>
-    -- Should be an object with a function name and arguments
-    -- The function's name is the 0th element, the arguments the 2nd element (an array)
-    let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 3
-    let callFn ← CallFun.fromJson arr[0]
-    let expsJson ← arr[2].getArrM
-    let exps : Array Exp ← expsJson.mapM (fromJsonSpanned · Exp.fromJson)
-    return .Call callFn [] exps.toList
+  | ("ArrayLiteral", obj) =>
+    -- `obj` should be an array with the exact elements
+    let arr ← obj.getArrM
+    let elems ← arr.mapM (fromJsonSpanned · Exp.fromJson)
+    return .ArrayLiteral elems.toList
 
   | s => throw s!"[ExpX.fromJson?]: Expected an Exp branch string, got {s}"
 

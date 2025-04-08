@@ -114,6 +114,12 @@ partial def Exp.pp (e : Exp) : String :=
   match e with
   | .Const c => Const.pp c
   | .Var ident => ident
+  | .Call fn _ exps =>
+    let fn := match fn with
+      | CallFun.Fun fn => fn
+    let exps := exps.map Exp.pp
+    let exps := String.intercalate ", " exps
+    fn ++ "(" ++ exps ++ ")"
   | .StructCtor dt fields =>
     let fs := fields.map (fun ⟨i, e⟩ => s!"{i}: {Exp.pp e}")
     let fs := String.intercalate ", " fs
@@ -136,12 +142,11 @@ partial def Exp.pp (e : Exp) : String :=
     let bnd := Bind.pp bnd
     let exp := Exp.pp exp
     bnd ++ exp
-  | .Call fn _ exps =>
-    let fn := match fn with
-      | CallFun.Fun fn => fn
-    let exps := exps.map Exp.pp
-    let exps := String.intercalate ", " exps
-    fn ++ "(" ++ exps ++ ")"
+  | .ArrayLiteral es =>
+    let es := es.map Exp.pp
+    let es := String.intercalate ", " es
+    s!"[{es}]"
+
 
 end /- mutual -/
 

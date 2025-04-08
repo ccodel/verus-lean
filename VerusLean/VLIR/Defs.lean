@@ -246,21 +246,19 @@ inductive Exp where
   | Const (c : Const)
   /-- Local variables, as a right-hand side of an expression. -/
   | Var (ident : Ident)
+  /-- Call to spec function -/
+  | Call (fn : CallFun) (typs : List Typ) (exps : List Exp)
   /-- A struct constructor -/
   | StructCtor (dt : Ident) (fields : List (Ident × Exp))
   /-- A constructor for the datatype with the name `dt` and the given `fields`. -/
   | EnumCtor (dt variant : Ident) (data : List (Ident × Exp))
   /-- Primitive unary function application. -/
   | Unary (op : UnaryOp) (arg : Exp)
-  -- | UnaryOpr (op : UnaryOp) (arg : Exp)
   /-- Primitive binary function application. -/
   | Binary (op : BinaryOp) (arg₁ arg₂ : Exp)
-  -- | BinaryOpr (op : BinaryOp) (arg₁ arg₂ : Exp)
   | If (cond branch₁ branch₂ : Exp)
-  -- | ArrayLiteral (elems : Array Exp)
   | Bind (bind : Bind) (exp : Exp)
-  /-- Call to spec function -/
-  | Call (fn : CallFun) (typs : List Typ) (exps : List Exp)
+  | ArrayLiteral (elems : List Exp)
 deriving Repr, Inhabited
 
 end /- mutual -/
@@ -482,6 +480,7 @@ def Exp.height : Exp → Nat
   | .Const _
   | .Var _ => 1
   | .Unary _ e => 1 + e.height
+  | .Call _ _ es => 1 + es.attach.foldl (init := 0) (λ acc ⟨e, _⟩ => max acc e.height)
   | .StructCtor _ _ => 2
   | .EnumCtor _ _ _ => 2
     /-let exps := fields.map Prod.snd
@@ -497,7 +496,7 @@ def Exp.height : Exp → Nat
   | .Binary _ e₁ e₂ => 1 + max e₁.height e₂.height
   | .If c b₁ b₂ => 1 + max c.height (max b₁.height b₂.height)
   | .Bind _ e => 1 + e.height
-  | .Call _ _ es => 1 + es.attach.foldl (init := 0) (λ acc ⟨e, _⟩ => max acc e.height)
+  | .ArrayLiteral es => 1 + es.attach.foldl (init := 0) (λ acc ⟨e, _⟩ => max acc e.height)
 
 /--
   Extracts the identifier in the expression.

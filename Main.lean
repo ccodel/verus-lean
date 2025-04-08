@@ -94,18 +94,23 @@ unsafe def main : List String → IO Unit
       | .ok str => IO.println <| preludeString ++ str ++ postludeString
       | .error e => IO.println s!"Error: {e}"
     | .error e => IO.println e
+
   | ["dir", path] => do
     -- IO.println "Reading from a directory"
     let res ← genFromDir' path
     IO.println <| preludeString ++ res ++ postludeString
+
   | [path, toFile] => do
-    /-let res ← Exp.fromFile? path
+    let res ← Decls.fromFile? path
     match res with
-    | .ok (e, map) =>
-      let declsString := map.fold (init := "") (fun str k _ => str ++ s!"({k} : Bool) ")
-      IO.FS.writeFile toFile (preludeString ++ e.toTheoremString (decls := declsString) ++ postludeString)
-    | .error e => IO.println e-/
-    IO.println "Ignored for now"
+    | .ok decls =>
+      match ← Decl.toFormat decls with
+      | .ok str =>
+        let str := preludeString ++ str ++ postludeString
+        IO.FS.writeFile toFile str
+      | .error e => IO.println s!"Error: {e}"
+    | .error e => IO.println e
+
   | ["dir", path, toFile] => do
     -- IO.println "Reading from a directory"
     let res ← genFromDir' path
