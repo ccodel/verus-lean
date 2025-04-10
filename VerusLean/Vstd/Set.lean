@@ -1,5 +1,4 @@
 import Lean
-import Batteries
 
 namespace Vstd
 
@@ -16,7 +15,7 @@ def Mem (s : Set α) (a : α) : Prop :=
 -- CC: Later, I'll develop an attribute (similar to `@[simp]`) that
 --     will automatically generate a new definition with the new name.
 -- protected def contains (s : Set α) (a : α) : Prop :=
-def contains (s : Set α) (a : α) : Prop :=
+abbrev contains (s : Set α) (a : α) : Prop :=
   Set.Mem s a
 
 instance instMembership : Membership α (Set α) :=
@@ -24,6 +23,9 @@ instance instMembership : Membership α (Set α) :=
 
 def empty {α : outParam (Type u)} : Set α :=
   (fun _ => False)
+
+def full {α : outParam (Type u)} : Set α :=
+  (fun _ => True)
 
 instance instEmptyCollection : EmptyCollection (Set α) where
   emptyCollection := empty
@@ -73,7 +75,7 @@ def inter (S₁ S₂ : Set α) : Set α :=
 instance instInter : Inter (Set α) := ⟨Set.inter⟩
 
 -- CC: Verus' name
-def intersect (S₁ S₂ : Set α) : Set α :=
+abbrev intersect (S₁ S₂ : Set α) : Set α :=
   inter S₁ S₂
 
 def difference (S₁ S₂ : Set α) : Set α :=
@@ -102,15 +104,15 @@ def filter (p : α → Prop) (S : Set α) : Set α :=
 -- CZ: can't find anything about `Surjective` in Batteries
 -- A type is `Finite` if it is in bijective correspondence to some `Fin n`
 def finite (S : Set α) : Prop :=
-  ∃ (n : Nat) (f : Fin n → α), ∀ x, x ∈ S ↔ ∃ i, f i = x
+  ∃ (n : Nat) (f : Fin n → α), ∀ x, (x ∈ S ↔ ∃ i, f i = x)
 
 def surj_on (f : α → β) (S : Set α) : Prop :=
-  ∀ a1, ∀ a2, S.contains a1 ∧ S.contains a2 ∧ a1 ≠ a2 → f a1 ≠ f a2
+  ∀ (a1 a2), S.contains a1 ∧ S.contains a2 ∧ a1 ≠ a2 → f a1 ≠ f a2
 
 -- CZ: An alternate definition of `finite`, a direct translation of `finite` in Vstd
 -- Note that this version has no bijection, so `ub` is not the cardinality
 def finite' (S : Set α) : Prop :=
-  ∃ f : α → Nat, ∃ ub : Nat, (surj_on f S) ∧ (∀ a, a ∈ S → f a < ub)
+  ∃ (f : α → Nat) (ub : Nat), surj_on f S ∧ ∀ a, a ∈ S → f a < ub
 
 noncomputable def card (S : Set α) (h_finite : finite S) : Nat :=
   -- CC: Have fun!
@@ -128,7 +130,8 @@ def disjoint (S₁ S₂ : Set α) : Prop :=
 noncomputable def choose (S : Set α) (h : ∃ x, x ∈ S) : α :=
   h.choose
 
-attribute [instance] Classical.propDecidable
+open Classical
+
 -- CC: This is broken, due to possibly needing `DecidableEq α`.
 --     Ponder this. Verus seems to really like fold.
 --     But don't spend too much time here, since Verus seemed to take a long time to build it up
@@ -175,43 +178,16 @@ def map (f : α → β) (S : Set α) : Set β :=
 
 -- CC: At this point, you can probably start copying basic theorem from Mathlib.Data.Set.Basic
 -- CC: For example, the below proof works straight from Mathlib
-@[simp]
-theorem empty_union (S : Set α) : ∅ ∪ S = S :=
-  ext fun _ => iff_of_eq (false_or _)
 
-@[simp]
-theorem union_empty (S : Set α) : S ∪ ∅ = S :=
-  ext fun _ => iff_of_eq (or_false _)
-
-theorem union_comm (S₁ S₂ : Set α) : S₁ ∪ S₂ = S₂ ∪ S₁ :=
-  ext fun _ => or_comm
-
-theorem union_assoc (S₁ S₂ S₃ : Set α) : (S₁ ∪ S₂) ∪ S₃ = S₁ ∪ (S₂ ∪ S₃) :=
-  ext fun _ => or_assoc
-
-@[simp]
-theorem empty_inter (S : Set α) : ∅ ∩ S = ∅ :=
-  ext fun _ => iff_of_eq (false_and _)
-
-@[simp]
-theorem inter_empty (S : Set α) : S ∩ ∅ = ∅ :=
-  ext fun _ => iff_of_eq (and_false _)
-
-theorem mem_union (S₁ S₂ : Set α) (x : α) :
-    x ∈ S₁ ∪ S₂ ↔ x ∈ S₁ ∨ x ∈ S₂ :=
-  Iff.rfl
-
-theorem mem_inter (S₁ S₂ : Set α) (x : α) :
-    x ∈ S₁ ∩ S₂ ↔ x ∈ S₁ ∧ x ∈ S₂ :=
-  Iff.rfl
-
-theorem mem_diff (S₁ S₂ : Set α) (x : α) :
-    x ∈ S₁ \ S₂ ↔ x ∈ S₁ ∧ ¬ x ∈ S₂ :=
-  Iff.rfl
+/-! # mem -/
 
 @[simp]
 theorem not_mem_empty (x : α) : x ∉ (∅ : Set α) :=
   id
+
+@[simp]
+theorem mem_full (x : α) : x ∈ full :=
+  trivial
 
 @[simp]
 theorem not_mem_remove (S : Set α) (x : α) :
@@ -224,6 +200,74 @@ theorem mem_of_ne_of_mem_remove (S : Set α) (x y : α) (h : x ≠ y) :
   Iff.intro
     (fun h' => h'.2)
     (fun h' => ⟨h, h'⟩)
+
+/-! # union -/
+
+@[simp]
+theorem empty_union (S : Set α) : ∅ ∪ S = S :=
+  ext fun _ => iff_of_eq (false_or _)
+
+@[simp]
+theorem union_empty (S : Set α) : S ∪ ∅ = S :=
+  ext fun _ => iff_of_eq (or_false _)
+
+@[simp]
+theorem full_union (S : Set α) : full ∪ S = full :=
+  ext fun _ => iff_of_eq (true_or _)
+
+@[simp]
+theorem union_full (S : Set α) : S ∪ full = full :=
+  ext fun _ => iff_of_eq (or_true _)
+
+@[simp]
+theorem union_self (S : Set α) : S ∪ S = S :=
+  ext fun _ => iff_of_eq (or_self _)
+
+theorem mem_union_iff {S₁ S₂ : Set α} {x : α} :
+    x ∈ S₁ ∪ S₂ ↔ x ∈ S₁ ∨ x ∈ S₂ :=
+  Iff.rfl
+
+@[simp]
+theorem union_compl (S : Set α) : S ∪ compl S = full := by
+  ext x
+  simp only [mem_full, iff_true]
+  apply mem_union_iff.mpr
+  exact Decidable.or_iff_not_imp_left.mpr id
+
+theorem union_comm (S₁ S₂ : Set α) : S₁ ∪ S₂ = S₂ ∪ S₁ :=
+  ext fun _ => or_comm
+
+theorem union_assoc (S₁ S₂ S₃ : Set α) : (S₁ ∪ S₂) ∪ S₃ = S₁ ∪ (S₂ ∪ S₃) :=
+  ext fun _ => or_assoc
+
+/-! # inter -/
+
+@[simp]
+theorem empty_inter (S : Set α) : ∅ ∩ S = ∅ :=
+  ext fun _ => iff_of_eq (false_and _)
+
+@[simp]
+theorem inter_empty (S : Set α) : S ∩ ∅ = ∅ :=
+  ext fun _ => iff_of_eq (and_false _)
+
+@[simp]
+theorem full_inter (S : Set α) : full ∩ S = S :=
+  ext fun _ => iff_of_eq (true_and _)
+
+@[simp]
+theorem inter_full (S : Set α) : S ∩ full = S :=
+  ext fun _ => iff_of_eq (and_true _)
+
+-- Verus name: axiom_set_intersect
+theorem mem_inter_iff (S₁ S₂ : Set α) (x : α) :
+    x ∈ S₁ ∩ S₂ ↔ x ∈ S₁ ∧ x ∈ S₂ :=
+  Iff.rfl
+
+theorem mem_diff (S₁ S₂ : Set α) (x : α) :
+    x ∈ S₁ \ S₂ ↔ x ∈ S₁ ∧ ¬ x ∈ S₂ :=
+  Iff.rfl
+
+/-! # finite -/
 
 -- CC: This proof will very much depend on your definition of `finite`,
 --     so be happy with that definition first
@@ -464,7 +508,6 @@ theorem finite_inter_left' (S₁ S₂ : Set α) (h : finite' S₁) :
 --     finite (S₁ ∩ S₂) := by
 --   sorry
 
-#check and_comm
 theorem finite_inter_right' (S₁ S₂ : Set α) (h : finite' S₂) :
     finite' (S₁ ∩ S₂) := by
   have : S₁ ∩ S₂ = S₂ ∩ S₁ := by
@@ -480,11 +523,10 @@ theorem finite_inter_right' (S₁ S₂ : Set α) (h : finite' S₂) :
 --     finite (S₁ ∩ S₂) := by
 --   sorry
 
-theorem finite_inter_of_finite_of_finite' (S₁ S₂ : Set α)
-    (h₁ : finite' S₁) (h₂ : finite' S₂) :
-    finite' (S₁ ∩ S₂) := finite_inter_left' S₁ S₂ h₁
+theorem finite_inter_of_finite_of_finite' (h₁ : finite' S₁) (_ : finite' S₂)
+    : finite' (S₁ ∩ S₂) :=
+  finite_inter_left' S₁ S₂ h₁
 
--- CC: The proof of this might be sketchy. See mathlib
 theorem choose_mem (S : Set α) (h : ∃ x, x ∈ S) : S.choose h ∈ S :=
   Classical.choose_spec h
 
