@@ -20,7 +20,7 @@ inductive Mode where
   | Spec
   | Proof
   | Exec
-deriving Repr, DecidableEq, Inhabited
+deriving Repr, DecidableEq, Inhabited, Hashable
 
 /-- Describes integer types -/
 inductive IntRange where
@@ -36,7 +36,7 @@ inductive IntRange where
   | USize
   /-- Rust's isize type -/
   | ISize
-deriving Repr, Inhabited, DecidableEq
+deriving Repr, Inhabited, DecidableEq, Hashable
 
 /-- Rust type, but without Box, Rc, Arc, etc. -/
 inductive Typ where
@@ -77,7 +77,7 @@ inductive Typ where
     use the datatype map in `Parser.lean`.
   -/
   | Enum (name : Ident) (params : List Typ)
-deriving Repr, Inhabited
+deriving Repr, Inhabited, Hashable
 
 /-- Constant value literals -/
 inductive Const
@@ -89,7 +89,7 @@ inductive Const
   | StrSlice (s : String)
   /-- UTF-8 Unicode chars. In Rust, these are always four bytes. -/
   | Char (c : Char)
-deriving Repr, Inhabited, DecidableEq
+deriving Repr, Inhabited, DecidableEq, Hashable
 
 /-- Bitwise operations.  -/
 inductive BitwiseOp
@@ -98,7 +98,7 @@ inductive BitwiseOp
   | BitOr
   | Shr (width : Nat) -- CC: Replace width with enum later?
   | Shl (width : Nat) (signExtend : Bool)
-deriving Repr, Inhabited, DecidableEq
+deriving Repr, Inhabited, DecidableEq, Hashable
 
 /-- Arithmetic operations that might fail due to overflow or divide by zero. -/
 inductive ArithOp
@@ -112,7 +112,7 @@ inductive ArithOp
   | EuclideanDiv
   /-- Euclidean mod (non-negative result, even for negative divisors). -/
   | EuclideanMod
-deriving Repr, Inhabited, DecidableEq
+deriving Repr, Inhabited, DecidableEq, Hashable
 
 /-- Arithmetic inequality operations. -/
 inductive InequalityOp
@@ -120,7 +120,7 @@ inductive InequalityOp
   | Ge
   | Lt
   | Gt
-deriving Repr, Inhabited, DecidableEq
+deriving Repr, Inhabited, DecidableEq, Hashable
 
 /-- Primitive unary operations
  (not arbitrary user-defined functions -- these are represented by Expr::Call) -/
@@ -174,8 +174,7 @@ inductive UnaryOp where
     In Verus, this is defined under `UnaryOpr`.
   -/
   | Unbox (t : Typ)
-deriving Repr, Inhabited
--- deriving Repr, Inhabited, DecidableEq
+deriving Repr, Inhabited, Hashable
 
 /--
   Primitive binary operations.
@@ -205,18 +204,18 @@ inductive BinaryOp
   | Arith (op : ArithOp) (mode : Mode)
   /-- Bitwise operations. Overflow checking is done when `mode = Exec`. -/
   | Bitwise (op : BitwiseOp) (mode : Mode)
-deriving Repr, Inhabited, DecidableEq
+deriving Repr, Inhabited, DecidableEq, Hashable
 
 inductive Quant where
   | Forall
   | Exists
-deriving Repr, Inhabited, DecidableEq
+deriving Repr, Inhabited, DecidableEq, Hashable
 
 inductive CallFun where
   | Fun (fn : Ident) -- an optional resolved Fun for methods currently not implemented
   -- | Recursive (name : Ident)
   -- | InternalFun (name : Ident)
-deriving Repr, Inhabited, DecidableEq
+deriving Repr, Inhabited, DecidableEq, Hashable
 
 mutual
 
@@ -234,7 +233,7 @@ inductive Bind where
   | Lambda (vars : List (Ident × Typ))
   -- CC: Ignore choose for now
   -- | Choose ()
-deriving Repr, Inhabited
+deriving Repr, Inhabited, Hashable
 
 /--
   Flattened Verus expressions.
@@ -259,7 +258,7 @@ inductive Exp where
   | If (cond branch₁ branch₂ : Exp)
   | Bind (bind : Bind) (exp : Exp)
   | ArrayLiteral (elems : List Exp)
-deriving Repr, Inhabited
+deriving Repr, Inhabited, Hashable
 
 end /- mutual -/
 
@@ -267,7 +266,7 @@ structure LoopInvariant where
   atEntry : Bool
   atExit : Bool
   body : Exp
-deriving Repr, Inhabited
+deriving Repr, Inhabited, Hashable
 
 /--
   Flattened Verus statements.
@@ -292,7 +291,7 @@ inductive Stm where
   | OpenInvariant (stm : Stm)
   | ClosureInner (body : Stm) -- missing typ_inv_vars
   | Block (stms : List Stm)
-deriving Repr, Inhabited
+deriving Repr, Inhabited, Hashable
 
 --------------------------------------------------------------------------------
 
@@ -300,7 +299,7 @@ inductive PostConditionKind
   | Ensures
   | DecreasesImplicitLemma
   | DecreasesBy
-deriving Repr, Inhabited
+deriving Repr, Inhabited, Hashable
 
 /-
 -- simplified as postCondition : Exp in FuncCheckSst
@@ -318,7 +317,7 @@ structure FuncCheckSst where
   -- Ignore mask_set, unwind, body, and statics for now
   -- Expects no return value, and an empty body instead of a stmX in a proof fn?
   decls : List (Ident × Typ)
-deriving Repr, Inhabited
+deriving Repr, Inhabited, Hashable
 
 /--
   A type class to extract the name of a declaration.
@@ -339,14 +338,14 @@ structure Assertion where
   name : Ident
   decls : List (Ident × Typ)
   body : Exp
-deriving Repr, Inhabited
+deriving Repr, Inhabited, Hashable
 
 structure SpecFn where
   name : Ident
   inputs : List (Ident × Typ)
   returnType : Typ
   body : Exp
-deriving Repr, Inhabited
+deriving Repr, Inhabited, Hashable
 
 structure ProofFn where
   name : Ident
@@ -354,24 +353,24 @@ structure ProofFn where
   requires : List Exp
   ensures : List Exp
   body : Stm
-deriving Repr, Inhabited
+deriving Repr, Inhabited, Hashable
 
 structure Struct where
   name : Ident
   typeParams : List Ident := []
   fields : List (Ident × Typ)
-deriving Repr, Inhabited
+deriving Repr, Inhabited, Hashable
 
 structure EnumField where
   name : Ident
   data : List (Ident × Typ) := []
-deriving Repr, Inhabited
+deriving Repr, Inhabited, Hashable
 
 structure Enum where
   name : Ident
   typeParams : List Ident := []
   fields : List EnumField
-deriving Repr, Inhabited
+deriving Repr, Inhabited, Hashable
 
 /--
   These are top-level "Lean" objects that Lean will evantually turn into
@@ -384,7 +383,7 @@ inductive Decl where
   | struct (s : Struct)
   | enum (e : Enum)
   | func (f : FuncCheckSst)
-deriving Repr, Inhabited
+deriving Repr, Inhabited, Hashable
 
 instance Assertion.instCoeDecl : Coe Assertion Decl := ⟨Decl.assertion⟩
 instance SpecFn.instCoeDecl : Coe SpecFn Decl := ⟨Decl.specFn⟩

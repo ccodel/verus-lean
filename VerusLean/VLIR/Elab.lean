@@ -24,6 +24,7 @@ private def falseIdent : Lean.Ident := mkIdent ``false
 private def TrueIdent : Lean.Ident := mkIdent ``True
 private def FalseIdent : Lean.Ident := mkIdent ``False
 private def ArrayIdent : Lean.Ident := mkIdent ``Array
+private def decEqIdent : Lean.Ident := mkIdent ``DecidableEq
 
 def Ident.toIdent (i : Ident) : MetaM Lean.Ident :=
   return mkIdent (.mkSimple i)
@@ -255,7 +256,26 @@ def addToTacticOption (acc : Option (TSyntax `tactic)) (tac : TSyntax `tactic) :
 
 partial def Stm.toTerm (stm : Stm) : MetaM (TSyntax `tactic) := do
   match stm with
-  | .Assert e
+  | .Assert _ =>
+    /-
+      Skip `Assert`s because they are always followed by an `Assume`.
+
+      As of April 2025, Verus's design is driven by incremental SMT solving
+      and the calculation of the weakest pre-condition. To accomplish this,
+      Verus throws `Assert`s into an `ExprX::AssertAssume` node, which is
+      translated into the SST by adding an `Assert(e)` node, and then
+      an `Assume(e)` node. The `Assert()` is translated into a command
+      which is discharged by the SMT solver, while the `Assume()`
+      is then used by the weakest pre-condition calculation to add `e`
+      to the context.
+
+      We don't want duplicates of `Assert()` and `Assume()` floating
+      around, so we skip the `Assert()`s.
+    -/
+    --let e ← e.toTerm
+    --`(tactic| have : $e := by verus)
+    `(tactic| skip)
+
   | .Assume e =>
     let e ← e.toTerm
     `(tactic| have : $e := by verus)
@@ -276,7 +296,7 @@ partial def Stm.toTerm (stm : Stm) : MetaM (TSyntax `tactic) := do
 
   | .AssertLean e =>
     let e ← e.toTerm
-    `(tactic| have : $e := by auto? )
+    `(tactic| have : $e := by auto?)
 
   | .Assign lhs lhsTy rhs _ =>
     let lhs ← lhs.toIdent
@@ -374,7 +394,8 @@ def ProofFn.toCommand (f : ProofFn) : MetaM (TSyntax `command) := do
   -- CC: TODO requires and ensures (currently disallowed by Verus)
   let body ← body.toTerm
   if ensures.length = 0 then
-    `(command| theorem $ident $args:bracketedBinder* : TrivialProofFn := by
+    let trivialConclusion := Term.mkConst ``True
+    `(command| theorem $ident $args:bracketedBinder* : True := by
       $body
       trivial)
   else
@@ -391,7 +412,10 @@ def Struct.toCommand (s : Struct) : MetaM (TSyntax `command) := do
       let field ← fieldName.toIdent
       let ty ← fieldTy.toTerm
       `(structSimpleBinder| $field:ident : $ty))
-  `(command| structure $nameAsIdent:ident where $fields:structSimpleBinder* )
+  `(command|
+    structure $nameAsIdent:ident where
+      $fields:structSimpleBinder*
+    deriving $decEqIdent)
 
 
 def Enum.toCommand (e : Enum) : MetaM (TSyntax `command) := do
@@ -403,7 +427,10 @@ def Enum.toCommand (e : Enum) : MetaM (TSyntax `command) := do
       let variant ← variantName.toIdent
       let binders ← makeExplicitBinders data.toArray
       `(ctor| | $variant:ident $binders:bracketedBinder* ))
-  `(command| inductive $nameAsIdent:ident where $fields:ctor* )
+  `(command|
+    inductive $nameAsIdent:ident where
+      $fields:ctor*
+    deriving $decEqIdent)
 
 
 def FuncCheckSst.toCommand (f : FuncCheckSst) : MetaM (TSyntax `command) := do

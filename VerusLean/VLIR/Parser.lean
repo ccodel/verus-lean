@@ -31,6 +31,7 @@ abbrev DeclMap := Std.HashMap Ident Decl
 structure ParserState where
   expectedType : Typ := .Bool
   freeVars : VarMap := {}
+  locVars : VarMap := {}
   -- Acts like a stack?
   boundVars : List (Ident × Typ) := []
   decls : DeclMap := {}
@@ -54,6 +55,9 @@ def setTyp (t : Typ) : VParser Unit :=
 def getFreeVars : VParser VarMap :=
   do let st ← get; return st.freeVars
 
+def getLocVars : VParser VarMap :=
+  do let st ← get; return st.locVars
+
 def getBoundVars : VParser (List (Ident × Typ)) :=
   do let st ← get; return st.boundVars
 
@@ -63,9 +67,17 @@ def addFreeVarWithTyp (var : Ident) (typ : Typ) : VParser Unit := do
     freeVars := st.freeVars.insert var typ
   }
 
+def addLocVarWithTyp (var : Ident) (typ : Typ) : VParser Unit := do
+  modify fun st => { st with
+    locVars := st.locVars.insert var typ
+  }
+
 -- Adds a free variable, using the type stored in the state.
 def addFreeVar (var : Ident) : VParser Unit := do
   addFreeVarWithTyp var (← getTyp)
+
+def addLocVar (var : Ident) : VParser Unit := do
+  addLocVarWithTyp var (← getTyp)
 
 def pushBoundVar (var : Ident) (typ : Typ) : VParser Unit :=
   modify fun st => { st with boundVars := (var, typ) :: st.boundVars }
@@ -115,6 +127,8 @@ def lookupBoundVarTyp? (var : Ident) : VParser (Option Typ) := do
   match boundVars.find? (fun ⟨i, _⟩ => i == var) with
   | some (_, typ) => return some typ
   | none => return none
+
+-- CC: TODO: addFreeVar if not bound? Marked `isMut`?
 
 /--
   Only adds a free variable if it is not already bound locally.
@@ -176,16 +190,18 @@ partial def Typ.fromJson (j : Json) : m Typ := do
     match ← j["Primitive", "Int", "ConstInt", "Datatype", "Boxed"] with
     | ("Primitive", obj) =>
       let t ← obj.getArrM
-      match t.get? 0 with
-      | some "Array" =>
-        -- In Verus, arrays are specified by their type and length
-        -- We drop the length requirement (for now TODO)
-        -- This type is in the first element of the array in the first index of `t`
-        let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 2
-        let ⟨arrTyp, _⟩ ← arr[1].getArrWithSizeGeM 2
-        let typ ← Typ.fromJson arrTyp[0]
-        return .Array typ
-      | some j => throw s!"unsupported primitive type: {j}"
+      match t[0]? with
+      | some j =>
+        match j.getStr? with
+        | .ok "Array" =>
+          -- In Verus, arrays are specified by their type and length
+          -- We drop the length requirement (for now TODO)
+          -- This type is in the first element of the array in the first index of `t`
+          let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 2
+          let ⟨arrTyp, _⟩ ← arr[1].getArrWithSizeGeM 2
+          let typ ← Typ.fromJson arrTyp[0]
+          return .Array typ
+        | _ => throw s!"unsupported primitive type: {j}"
       | none => throw s!"error, json: {obj}"
 
     | ("Int", obj) =>
@@ -439,6 +455,13 @@ def VarBinder.typBindersFromJson (j : Json) : m (List (Ident × Typ)) := do
   let (arr : _root_.Array Json) ← j.getArrM
   arr.toList.mapM (VarBinder.fromJson · "a")
 
+def Var.fromJson (j : Json) : m Ident := do
+  let ⟨arr, _⟩ ← j.getArrWithSizeGeM 2
+  let ident ← arr[0].getStrM
+  match ident with
+  | "tmp%" => return s!"tmp{← arr[1].getNatUnderKeyM "VirTemp"}"
+  | _ => return ident
+
 
 mutual /- {Bind, Exp}.fromJson -/
 
@@ -459,16 +482,13 @@ partial def Exp.fromJson (j : Json) : VParser Exp := do
     return .Const <| ← Const.fromJson obj
 
   | ("Var", obj) =>
-    -- Verus gives us an array, where the first element is the identifier
-    let i ← obj.getArrValM 0
-    let ident ← i.getStr?
+    let ident ← Var.fromJson obj
     addFreeVarIfNotBound ident
     return .Var ident
 
   | ("VarLoc", obj) =>
-    -- Because `VarLoc` stores a 2-element tuple in Verus, we expect an array
-    let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 2
-    let ident ← arr[0].getStrM  -- Flat identifier, not pathed
+    let ident ← Var.fromJson obj
+    addLocVar ident
     return .Var ident
 
   | ("Call", obj) =>
@@ -558,6 +578,7 @@ partial def Exp.fromJson (j : Json) : VParser Exp := do
 
 end /- mutual -/
 
+
 /--
   Parses a `Dest` expression, but with the expectation that the result
   is an identifier. Mainly used to build `Assign`s.
@@ -587,7 +608,8 @@ partial def Stm.fromJson (j : Json) : VParser Stm := do
     throw "Call not yet implemented"
 
   | ("Assert", obj) =>
-    let e ← fromJsonSpanned obj Exp.fromJson
+    let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 3
+    let e ← fromJsonSpanned arr[2] Exp.fromJson
     return .Assert e
 
   | ("AssertBitVector", obj) =>

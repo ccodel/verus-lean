@@ -12,15 +12,6 @@ import VerusLean.Basic.BitVec
 import VerusLean.Basic.Monad
 import VerusLean.Basic.UInt
 
-/--
-  Used to elaborate a trivial proof function from Verus, dischargable via `trivial`.
-
-  For whatever reason, if `True` is elaborated in a command environment,
-  its syntax output is `True.1`, which is technically the right thing,
-  but Lean rejects it. To prevent this, we use this notation instead.
--/
-notation "TrivialProofFn" => True
-
 namespace String
 
 def cmp (s₁ s₂ : String) : Ordering :=
@@ -78,7 +69,7 @@ def fromJson? (j : Json) : Except String Char :=
           .error s!"Numerical value under 'char' is negative, expected non-negative: {n}"
         else
           if hn : n.natAbs < UInt32.size then
-            let fn : UInt32 := UInt32.ofNatCore n.natAbs hn
+            let fn : UInt32 := UInt32.ofNatLT n.natAbs hn
             if h_valid : fn.isValidChar then
               .ok <| Char.ofNatAux n.natAbs h_valid
             else

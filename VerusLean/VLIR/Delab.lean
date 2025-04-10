@@ -20,7 +20,11 @@ open Lean PrettyPrinter
          could be problematic.)
 -/
 unsafe def Decl.toFormat (ds : List Decl) : IO (Except String String) := do
-  searchPathRef.set compile_time_search_path%
+  -- CC: Supposedly `c_t_s_p` is deprecated, so we manually include the library
+  -- CC: This is *incredibly* brittle, and assumes the executable doesn't move
+  -- CC: Might also need `././.lake/packages/batteries/.lake/build/lib/lean`
+  -- searchPathRef.set compile_time_search_path%  -- (old version)
+  searchPathRef.set [s!"{(← findSysroot)}/lib/lean", ".lake/build/lib/lean"]
   let res : Except Exception Format ← Lean.withImportModules
     (imports := #[{ module := `Init }, { module := `VerusLean.Basic }, { module := `VerusLean.Tactic.ByVerus }])
     (opts := Options.empty)
@@ -28,8 +32,7 @@ unsafe def Decl.toFormat (ds : List Decl) : IO (Except String String) := do
     (fun env => EIO.toIO' <|
       Core.CoreM.run'
         (ctx := {
-          -- Since we're not making an actual Lean file, use a dummy name.
-          fileName := "Example.lean"
+          fileName := ""
           fileMap := default
         })
         (s := { env })
