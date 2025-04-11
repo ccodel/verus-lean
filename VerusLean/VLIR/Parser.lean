@@ -10,7 +10,7 @@ open Lean
 open VName
 
 /-- A map for variables. Alias for `Std.HashMap Ident Typ`. -/
-abbrev VarMap := Std.HashMap Ident Typ
+abbrev VarMap := Std.HashMap String Typ
 
 /-- A map for functions. Alias for `Std.HashMap Ident SpecFn`. -/
 abbrev FnMap := Std.HashMap Ident SpecFn
@@ -33,7 +33,7 @@ structure ParserState where
   freeVars : VarMap := {}
   locVars : VarMap := {}
   -- Acts like a stack?
-  boundVars : List (Ident × Typ) := []
+  boundVars : List (String × Typ) := []
   decls : DeclMap := {}
 deriving Inhabited, Repr
 
@@ -58,34 +58,34 @@ def getFreeVars : VParser VarMap :=
 def getLocVars : VParser VarMap :=
   do let st ← get; return st.locVars
 
-def getBoundVars : VParser (List (Ident × Typ)) :=
+def getBoundVars : VParser (List (String × Typ)) :=
   do let st ← get; return st.boundVars
 
 -- Adds a free variable with the explicitly given name `var` and type `typ`.
-def addFreeVarWithTyp (var : Ident) (typ : Typ) : VParser Unit := do
+def addFreeVarWithTyp (var : String) (typ : Typ) : VParser Unit := do
   modify fun st => { st with
     freeVars := st.freeVars.insert var typ
   }
 
-def addLocVarWithTyp (var : Ident) (typ : Typ) : VParser Unit := do
+def addLocVarWithTyp (var : String) (typ : Typ) : VParser Unit := do
   modify fun st => { st with
     locVars := st.locVars.insert var typ
   }
 
 -- Adds a free variable, using the type stored in the state.
-def addFreeVar (var : Ident) : VParser Unit := do
+def addFreeVar (var : String) : VParser Unit := do
   addFreeVarWithTyp var (← getTyp)
 
-def addLocVar (var : Ident) : VParser Unit := do
+def addLocVar (var : String) : VParser Unit := do
   addLocVarWithTyp var (← getTyp)
 
-def pushBoundVar (var : Ident) (typ : Typ) : VParser Unit :=
+def pushBoundVar (var : String) (typ : Typ) : VParser Unit :=
   modify fun st => { st with boundVars := (var, typ) :: st.boundVars }
 
 -- Pushes a list of bound vars.
 -- Note that lower indexes in `vars` means they get popped off sooner.
 -- This is opposite from what one might expect, but is typical stack behavior.
-def pushBoundVars (vars : List (Ident × Typ)) : VParser Unit :=
+def pushBoundVars (vars : List (String × Typ)) : VParser Unit :=
   modify fun st => { st with boundVars := vars ++ st.boundVars }
 
 -- Pops the newest bound variable off the stack.
@@ -100,7 +100,7 @@ def popBoundVars (n : Nat) : VParser Unit :=
 
 /-- Perform the state-ful function `fn` with the bound vars `vars`,
     then pops them off the bound variables stack before returning. -/
-def withBoundVars (vars : List (Ident × Typ)) (fn : VParser α) : VParser α := do
+def withBoundVars (vars : List (String × Typ)) (fn : VParser α) : VParser α := do
   pushBoundVars vars
   let a ← fn
   popBoundVars vars.length
@@ -122,7 +122,7 @@ def restoreCurrentBoundVarsAfter (fn : VParser α) : VParser α := do
 /--
   Consults the bound vars, from newest to oldest, to see if one named `var` exists.
 -/
-def lookupBoundVarTyp? (var : Ident) : VParser (Option Typ) := do
+def lookupBoundVarTyp? (var : String) : VParser (Option Typ) := do
   let boundVars ← getBoundVars
   match boundVars.find? (fun ⟨i, _⟩ => i == var) with
   | some (_, typ) => return some typ
@@ -133,12 +133,12 @@ def lookupBoundVarTyp? (var : Ident) : VParser (Option Typ) := do
 /--
   Only adds a free variable if it is not already bound locally.
 -/
-def addFreeVarWithTypIfNotBound (var : Ident) (typ : Typ) : VParser Unit := do
+def addFreeVarWithTypIfNotBound (var : String) (typ : Typ) : VParser Unit := do
   match ← lookupBoundVarTyp? var with
   | some _ => return ()
   | none => addFreeVarWithTyp var typ
 
-def addFreeVarIfNotBound (var : Ident) : VParser Unit := do
+def addFreeVarIfNotBound (var : String) : VParser Unit := do
   addFreeVarWithTypIfNotBound var (← getTyp)
 
 def addDecl (d : Decl) : VParser Unit :=
@@ -173,10 +173,14 @@ def widthFromJson (j : Json) : m Nat := do
     j.getNatUnderKeyM "Width"
   catch _ => return 32 -- ArchWordSize, use 32 bit for now
 
--- TODO: This probably needs to return a namespace (list?), rather than a single ident
 def pathedNameFromJson (j : Json) (pathKey : String := "path") : m Ident := do
-  let pathed ← j.getObjValByPathM [pathKey, "segments"]
-  Json.getStrM <| ← Json.getArrValM pathed 0
+  let nameObj ← j.getObjValM pathKey
+  let krate ← nameObj.getStrUnderKeyM "krate"
+  let krate := String.capitalize krate
+  let ident := Lean.Name.str .anonymous krate
+  let ⟨pathed, _⟩ ← nameObj.getArrUnderKeyWithSizeGeM "segments" 1
+  pathed.foldlM (init := ident) (fun acc i => do
+    return Lean.Name.str acc <| ← i.getStrM)
 
 def pathedNameFromNameJson (j : Json) (pathKey : String := "path") : m Ident := do
   let nameObj ← j.getObjValM "name"
@@ -389,13 +393,11 @@ def UnaryOp.fromJson (j : Json) : m UnaryOp := do
 def UnaryOp.oprFromJson (j : Json) : m UnaryOp := do
   match ← j["Field", "IsVariant", "Box", "Unbox"] with
   | ("Field", obj) =>
-    -- TODO: Skipping data type
-    let variant ← obj.getStrUnderKeyM "variant"
+    let dt ← pathedNameFromJson (pathKey := "Path") <| ← obj.getObjValM "datatype"
     let field ← obj.getStrUnderKeyM "field"
-    return .Proj variant field
+    return .Proj dt field
   | ("IsVariant", obj) =>
-    let dtObj ← obj.getObjValM "datatype"
-    let dt ← pathedNameFromJson dtObj "Path"
+    let dt ← pathedNameFromJson (pathKey := "Path") <| ← obj.getObjValM "datatype"
     let variant ← obj.getStrUnderKeyM "variant"
     return .IsVariant dt variant
   | ("Box", obj) =>
@@ -404,11 +406,10 @@ def UnaryOp.oprFromJson (j : Json) : m UnaryOp := do
   | ("Unbox", obj) =>
     let typ ← Typ.fromJson obj
     return .Unbox typ
-  | _ =>
-    return .Trigger
+  | _ => throw s!"unsupported unaryop: {j}"
 
 def BinaryOp.fromJson (j : Json) : m BinaryOp :=
-  -- Most are single strings, but Eq has a mode attached, etc.
+  -- Most are single strings, but some have other information attached
   match j.getStr? with
   | .ok "And"     => return .And
   | .ok "Or"      => return .Or
@@ -433,7 +434,7 @@ def BinaryOp.fromJson (j : Json) : m BinaryOp :=
       let op ← ArithOp.fromJson arr[0]
       let mode ← Mode.fromJson arr[1]
       return .Arith op mode
-    | _ => throw s!"[BinaryOp.fromJson?]: Expected one of \{ And, Or, Xor, Implies, Eq }, got something else: {j}"
+    | _ => throw s!"unsupported binary op: {j}"
 
 def Quant.fromJson (j : Json) : m Quant := do
   match ← j.getObjValM "quant" with
@@ -445,17 +446,18 @@ def CallFun.fromJson (j : Json) : m CallFun := do
   let ⟨arr, _⟩ ← j.getArrUnderKeyWithSizeGeM "Fun" 1
   return .Fun <| ← pathedNameFromJson arr[0]
 
-def VarBinder.fromJson (j : Json) (key : String := "typ") : m (Ident × Typ) := do
+def VarBinder.fromJson (j : Json) (key : String := "typ") : m (String × Typ) := do
+  -- The parameter's name is the 0th index (the "VirParam" is the 1st index)
   let ⟨arr, _⟩ ← j.getArrUnderKeyWithSizeGeM "name" 1
   let name ← arr[0].getStrM
   let typ ← Typ.fromJson <| ← j.getObjValM key
   return (name, typ)
 
-def VarBinder.typBindersFromJson (j : Json) : m (List (Ident × Typ)) := do
+def VarBinder.typBindersFromJson (j : Json) : m (List (String × Typ)) := do
   let (arr : _root_.Array Json) ← j.getArrM
   arr.toList.mapM (VarBinder.fromJson · "a")
 
-def Var.fromJson (j : Json) : m Ident := do
+def Var.fromJson (j : Json) : m String := do
   let ⟨arr, _⟩ ← j.getArrWithSizeGeM 2
   let ident ← arr[0].getStrM
   match ident with
@@ -502,12 +504,8 @@ partial def Exp.fromJson (j : Json) : VParser Exp := do
 
   | ("Ctor", obj) =>
     let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 3
-    let pathedName ← pathedNameFromJson arr[0] "Path"
-
-    /- TODO: This parsing code doesn't take into account more complicated
-      namespace pathing in Rust. We are assuming that all paths/variants
-      are contained in the same file. To be fixed later.  -/
-    let dt ← arr[1].getStrM
+    let dt ← pathedNameFromJson arr[0] "Path"
+    let variant ← arr[1].getStrM
 
     -- According to Verus, the order of the fields within a `Ctor` node
     -- is unspecified, so parsing should not rely on field order.
@@ -521,11 +519,11 @@ partial def Exp.fromJson (j : Json) : VParser Exp := do
       let exp ← fromJsonSpanned a Exp.fromJson
       return (name, exp))
 
-    match ← getDecl? pathedName with
-    | none => throw s!"[ExpX.fromJson]: Could not find datatype {pathedName}"
+    match ← getDecl? dt with
+    | none => throw s!"[ExpX.fromJson]: Could not find datatype {dt}"
     | some (Decl.struct _) => return .StructCtor dt parsedFields.toList
-    | some (Decl.enum _) => return .EnumCtor pathedName dt parsedFields.toList
-    | _ => throw s!"[ExpX.fromJson]: Encountered an unexpected decl with name {pathedName}"
+    | some (Decl.enum _) => return .EnumCtor dt variant parsedFields.toList
+    | _ => throw s!"[ExpX.fromJson]: Encountered an unexpected decl with name {dt}"
 
   | ("Unary", obj) =>
     -- A unary object should be an array with an op and a data element
@@ -591,7 +589,7 @@ end /- mutual -/
 
   TODO: Dropped type information?
 -/
-def Dest.fromJson (j : Json) : VParser (Ident × Typ) := do
+def Dest.fromJson (j : Json) : VParser (String × Typ) := do
   let e ← fromJsonSpanned j Exp.fromJson
   let ty ← getTyp
   match e with
@@ -691,7 +689,7 @@ partial def Stm.fromJson (j : Json) : VParser Stm := do
 
 --------------------------------------------------------------------------------
 
-def fnParseArgs (j : Json) : VParser (List (Ident × Typ)) := do
+def fnParseArgs (j : Json) : VParser (List (String × Typ)) := do
   let varsJson ← j.getArrUnderKeyM "pars"
 
   /-
@@ -751,7 +749,7 @@ def ProofFn.fromJson (j : Json) : VParser ProofFn := do
   return ProofFn.mk name args requires.toList ensures.toList bodyStm
 
 
-def typeParamsFromJson (j : Json) : m (List Ident) := do
+def typeParamsFromJson (j : Json) : m (List String) := do
   let typeParamsArr ← j.getArrUnderKeyM "typ_params"
   return Array.toList <| ← typeParamsArr.mapM (fun _ => do
     -- TODO: These are going to be tuples, which probably get serialized as an array
@@ -759,7 +757,7 @@ def typeParamsFromJson (j : Json) : m (List Ident) := do
     return ident)
 
 
-def dataFieldsForVariantFromJson (j : Json) : m (Ident × Typ) := do
+def dataFieldsForVariantFromJson (j : Json) : m (String × Typ) := do
   let name ← j.getStrUnderKeyM "name"
   -- The other two fields are `Mode` and `Visibility`, which we ignore
   let ⟨fArr, _⟩ ← j.getArrUnderKeyWithSizeGeM "a" 3
@@ -838,70 +836,18 @@ partial def Decl.fromJson (j : Json) : VParser Decl := do
   -- Each `Decl` JSON has a `DeclType`, which allows us
   -- to call the appropriate helper function
   let declObj ← j.getObjValM "x"
-  let decl ←
-    match ← j.getStrUnderKeyM "DeclType" with
-    | "Datatype" => datatypeFromJson declObj
-    | "SpecFn" => SpecFn.fromJson declObj
-    | "ProofFn" => ProofFn.fromJson declObj
-    | s => throw s!"Unexpected declaration type: {s}"
-/-
+  match ← j.getStrUnderKeyM "DeclType" with
+  | "Datatype" => datatypeFromJson declObj
+  | "SpecFn" => SpecFn.fromJson declObj
+  | "ProofFn" => ProofFn.fromJson declObj
+  | s => throw s!"Unexpected declaration type: {s}"
 
-  match ← j["Assert", "FuncCheckSst"] with
-  | ("Assert", (obj : Json)) =>
-    -- First, parse the data types (structs and enums)
-    let dtObjs ← j.getArrUnderKeyM "Datatypes"
-    let _ ← dtObjs.mapM (fun dtJson => do
-      -- Skip n-ary tuples for now (Verus places them under "Tuple")
-      -- TODO: Revisit this later (can you declare an enum named `Tuple`?)
-      match Json.getObjValByPath dtJson ["name", "Tuple"] with
-      | .ok _ => return ()
-      | .error _ => datatypeFromJson dtJson
-    )
+-- CC TODO: Returning a pair of `(namespace, decls in that namespace)` limits us
+--          from having multiple namespaces...
+partial def Decls.fromJson? (j : Json) : VParser (String × List Decl) := do
+  let krate ← j.getStrUnderKeyM "krate"
+  let krate := krate.capitalize
 
-    -- Parse the spec functions
-    let specObjs ← j.getArrUnderKeyM "SpecFns"
-    let _ ← specObjs.mapM SpecFn.fromJson
-
-    -- Parse the body of the assert, now that we have the spec functions
-    let exp ← Exp.fromJson obj
-    let vmap ← getFreeVars
-
-    let assertId ← j.getNatUnderKeyM "AssertId"
-    return Decl.assertion <| Assertion.mk s!"assert_{assertId}" vmap.toList exp
-
-  | ("FuncCheckSst", (obj : Json)) => do
-    let funcNameJson : Json ← j.getObjVal? "FnName"
-    let funcName : String ← Json.getStr? funcNameJson
-
-    -- Parse the spec functions
-    let specObjs ← j.getArrUnderKeyM "SpecFns"
-    let _ ← specObjs.mapM SpecFn.fromJson
-
-    -- Parse the preconditions (requires clauses)
-    let reqsArr ← obj.getArrUnderKeyM "reqs"
-    let reqs ← reqsArr.mapM (fun j => do
-      let obj : Json ← xJsonFromSpanned j
-      Exp.fromJson obj
-    )
-
-    -- Parse the post condition (ensures clause)
-    let postCondition ← obj.getObjValM "post_condition"
-    let ensArr ← postCondition.getArrUnderKeyM "ens_exps"
-    let enss ← ensArr.mapM (fun j => do
-      let obj : Json ← xJsonFromSpanned j
-      Exp.fromJson obj
-    )
-    let vmap ← getFreeVars
-
-    let decl := Decl.func <| FuncCheckSst.mk funcName reqs.toList enss.toList vmap.toList
-    -- dbg_trace s!"decl.pp: {decl.pp}"
-    return decl
-
-  |  _ => throw "[Decl.fromJson?]: Expected one of { Assert, FuncCheckSst }, got something else" -/
-
-
-partial def Decls.fromJson? (j : Json) : VParser (List Decl) := do
-  -- top-level object is an array under a "decls" key
   let declsArr ← j.getArrUnderKeyM "decls"
 
   /-
@@ -911,12 +857,13 @@ partial def Decls.fromJson? (j : Json) : VParser (List Decl) := do
     to us in a good order, so there is no need to extract the objects
     back from the hash maps at the end.
   -/
-  return Array.toList <| ← declsArr.mapM (fun j => do
-    let decl ← Decl.fromJson j
-    addDecl decl
-    return decl)
+  return Prod.mk krate <|
+    Array.toList <| ← declsArr.mapM (fun j => do
+      let decl ← Decl.fromJson j
+      addDecl decl
+      return decl)
 
-partial def Decls.fromFile? (path : String) : IO (Except String (List Decl)) := do
+partial def Decls.fromFile? (path : String) : IO (Except String (String × List Decl)) := do
   let jsonStr ← IO.FS.readFile path
   let json ← IO.ofExcept <| Json.parse jsonStr
   match Decls.fromJson? json default with

@@ -60,7 +60,8 @@ unsafe def genFromDir' (dirPath : String) : IO String := do
   let (fmap, dtmap, asserts, prooffns, failures) ← files.foldlM (init := ((∅, ∅, #[], #[], "") : FnMap × DeclMap × Array Assertion × Array FuncCheckSst × String))
     (fun (fnmap, dtmap, as, ps, str) filePath => do
     match ← Decls.fromFile? filePath.toString with
-    | .ok ds => do
+    -- CC TODO: Ignoring the namespace here...
+    | .ok (_, ds) => do
       let ⟨fnmap, dtmap, as, ps⟩ ←
         ds.foldlM (init := (fnmap, dtmap, as, ps)) (fun (fnmap, dtmap, as, ps) decl => do
           match decl with
@@ -77,39 +78,30 @@ unsafe def genFromDir' (dirPath : String) : IO String := do
   )
 
   let decls := dtmap.values
-               ++ fmap.values.map (.specFn ·)
-               ++ asserts.toList.map (.assertion ·)
-               ++ prooffns.toList.map (.func ·)
+               ++ fmap.values.map (Decl.specFn ·)
+               ++ asserts.toList.map (Decl.assertion ·)
+               ++ prooffns.toList.map (Decl.func ·)
 
-  match ← Decl.toFormat decls with
+  match ← Decl.toFormat "VL" decls with
   | .ok s => return s ++ failures
   | .error e => return s!"Error: {e}"
 
-unsafe def main : List String → IO Unit
-  | [path] => do
-    let res ← Decls.fromFile? path
-    match res with
-    | .ok decls =>
-      match ← Decl.toFormat decls with
-      | .ok str => IO.println <| preludeString ++ str ++ postludeString
-      | .error e => IO.println s!"Error: {e}"
-    | .error e => IO.println e
+unsafe def genFromFile (path : String) (printFn : String → IO Unit) : IO Unit := do
+  match ← Decls.fromFile? path with
+  | .ok (ns, decls) =>
+    match ← Decl.toFormat ns decls with
+    | .ok str => printFn <| preludeString ++ str ++ postludeString
+    | .error e => IO.println s!"Error: {e}"
+  | .error e => IO.println e
 
+unsafe def main : List String → IO Unit
+  | [path] => genFromFile path IO.println
   | ["dir", path] => do
     -- IO.println "Reading from a directory"
     let res ← genFromDir' path
     IO.println <| preludeString ++ res ++ postludeString
 
-  | [path, toFile] => do
-    let res ← Decls.fromFile? path
-    match res with
-    | .ok decls =>
-      match ← Decl.toFormat decls with
-      | .ok str =>
-        let str := preludeString ++ str ++ postludeString
-        IO.FS.writeFile toFile str
-      | .error e => IO.println s!"Error: {e}"
-    | .error e => IO.println e
+  | [path, toFile] => genFromFile path (IO.FS.writeFile toFile)
 
   | ["dir", path, toFile] => do
     -- IO.println "Reading from a directory"

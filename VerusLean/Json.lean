@@ -112,7 +112,7 @@ def getFirstVal (j : Json) (l : List String) : Except String (String × Json) :=
     | .ok (s, v) => return (s, v)
     | .error _ => throw s!"No keys matched. Expected one of {l} in {j}"
   else
-    throw "object expected"
+    throw s!"object expected in {j}"
 
 def getFirstValM (j : Json) (l : List String) : m (String × Json) :=
   match getFirstVal j l with

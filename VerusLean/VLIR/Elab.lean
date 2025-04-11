@@ -3,6 +3,10 @@ import VerusLean.VLIR.Pp
 import VerusLean.Tactic.ByVerus
 import Lean.Elab
 
+open Lean in
+def String.toIdent (s : String) : CoreM Lean.Ident :=
+  return mkIdent <| .mkSimple s
+
 namespace VerusLean
 
 /-
@@ -14,7 +18,7 @@ namespace VerusLean
     currently gets elaborated as a + (b * c) + d, since multiplication
     has higher precedence than addition.
     - One solution is to return a pair of `(Term × Precedence)`, or to operate
-      in a wrapper monad for `MetaM` that has a precendence.
+      in a wrapper monad for `CoreM` that has a precendence.
 -/
 
 open Lean Syntax Elab Command Parser Term Parser.Command Parser.Term
@@ -26,10 +30,16 @@ private def FalseIdent : Lean.Ident := mkIdent ``False
 private def ArrayIdent : Lean.Ident := mkIdent ``Array
 private def decEqIdent : Lean.Ident := mkIdent ``DecidableEq
 
-def Ident.toIdent (i : Ident) : MetaM Lean.Ident :=
-  return mkIdent (.mkSimple i)
+def Ident.toIdent (i : Ident) : CoreM Lean.Ident := do
+  -- Drop the head of the pathed identifier if it matches the current namespace
+  let ⟨h, tl⟩ := i.uncons
+  let ns ← getCurrNamespace
+  if h = ns then
+    return mkIdent tl
+  else
+    return mkIdent i
 
-def Typ.toTerm (ty : Typ) : MetaM Term := do
+def Typ.toTerm (ty : Typ) : CoreM Term := do
   match ty with
   | .Unit => return mkIdent ``_root_.Unit
   | .Tuple ty₁ ty₂ => do
@@ -59,7 +69,7 @@ def Typ.toTerm (ty : Typ) : MetaM Term := do
       `($s:term $tyTerm:term))
 
 
-def Const.toTerm (c : Const) : MetaM Term := do
+def Const.toTerm (c : Const) : CoreM Term := do
   match c with
   | Const.Bool b =>
     -- See Lean.Init.Meta, for Quote Bool and mkCIdent
@@ -72,7 +82,7 @@ def Const.toTerm (c : Const) : MetaM Term := do
   | Const.Char _ => return mkIdent ``Char
 
 -- CC: TODO figure out how to return just the op?
-def BitwiseOp.toTerm (b : BitwiseOp) (lhs rhs : Term) : MetaM Term := do
+def BitwiseOp.toTerm (b : BitwiseOp) (lhs rhs : Term) : CoreM Term := do
   match b with
   | .BitXor  => `($lhs ^^^ $rhs)
   | .BitAnd  => `($lhs &&& $rhs)
@@ -80,7 +90,7 @@ def BitwiseOp.toTerm (b : BitwiseOp) (lhs rhs : Term) : MetaM Term := do
   | .Shr _   => `($lhs >>> $rhs)
   | .Shl _ _ => `($lhs <<< $rhs)
 
-def ArithOp.toTerm (a : ArithOp) (lhs rhs : Term) : MetaM Term := do
+def ArithOp.toTerm (a : ArithOp) (lhs rhs : Term) : CoreM Term := do
   match a with
   | .Add => `($lhs + $rhs)
   | .Sub => `($lhs - $rhs)
@@ -88,14 +98,14 @@ def ArithOp.toTerm (a : ArithOp) (lhs rhs : Term) : MetaM Term := do
   | .EuclideanDiv => `($lhs / $rhs)
   | .EuclideanMod => `($lhs % $rhs)
 
-def InequalityOp.toTerm (i : InequalityOp) (lhs rhs : Term) : MetaM Term := do
+def InequalityOp.toTerm (i : InequalityOp) (lhs rhs : Term) : CoreM Term := do
   match i with
   | .Lt => `($lhs < $rhs)
   | .Le => `($lhs ≤ $rhs)
   | .Gt => `($lhs > $rhs)
   | .Ge => `($lhs ≥ $rhs)
 
-def UnaryOp.toTerm (u : UnaryOp) (e : Term) : MetaM Term := do
+def UnaryOp.toTerm (u : UnaryOp) (e : Term) : CoreM Term := do
   match u with
   | .Not => `(¬ ($e))
   | .BitNot _ => `(~~~ $e)
@@ -113,7 +123,7 @@ def UnaryOp.toTerm (u : UnaryOp) (e : Term) : MetaM Term := do
   | .Unbox _ => `($e) -- Ignore boxed-type information when constructing terms
   | _ => throwError "unsupported unary op {repr u}"
 
-def BinaryOp.toTerm (b : BinaryOp) (lhs rhs : Term) : MetaM Term := do
+def BinaryOp.toTerm (b : BinaryOp) (lhs rhs : Term) : CoreM Term := do
   match b with
   | .And => `($lhs ∧ $rhs)
   | .Or => `($lhs ∨ $rhs)
@@ -125,7 +135,7 @@ def BinaryOp.toTerm (b : BinaryOp) (lhs rhs : Term) : MetaM Term := do
   | .Arith arith _ => arith.toTerm lhs rhs
   | .Bitwise bitwise _ => bitwise.toTerm lhs rhs
 
-def CallFun.toIdent : CallFun → MetaM (Lean.Ident)
+def CallFun.toIdent : CallFun → CoreM (Lean.Ident)
   | CallFun.Fun i => i.toIdent
 
 mutual
@@ -143,7 +153,7 @@ mutual
   Because `Let` has an `Exp`, `Bind.toTerm` is mutually recursive
   with `Exp.toTerm`.
 -/
-partial def Bind.toTerm (b : Bind) (t : Term) : MetaM Term := do
+partial def Bind.toTerm (b : Bind) (t : Term) : CoreM Term := do
   match b with
   | .Let v ty e =>
     let v ← v.toIdent
@@ -180,7 +190,7 @@ partial def Bind.toTerm (b : Bind) (t : Term) : MetaM Term := do
       )
     `(fun $(varsLambda):funBinder* => $t)
 
-partial def Exp.toTerm (e : Exp) : MetaM Term := do
+partial def Exp.toTerm (e : Exp) : CoreM Term := do
   match e with
   | .Const c => c.toTerm
   | .Var i => i.toIdent
@@ -205,8 +215,7 @@ partial def Exp.toTerm (e : Exp) : MetaM Term := do
     `( { $fields:structInstField* } )
 
   | .EnumCtor dt variant data =>
-    let dtName := Name.mkStr .anonymous dt
-    let i := mkIdent <| Name.mkStr dtName variant
+    let i ← Ident.toIdent <| Name.mkStr dt variant
     let data := data.toArray
     let numDataVals := data.size
     let identAsTerm ← `($i:ident)
@@ -249,12 +258,12 @@ partial def Exp.toTerm (e : Exp) : MetaM Term := do
 
 end /- mutual -/
 
-def addToTacticOption (acc : Option (TSyntax `tactic)) (tac : TSyntax `tactic) : MetaM (TSyntax `tactic) := do
+def addToTacticOption (acc : Option (TSyntax `tactic)) (tac : TSyntax `tactic) : CoreM (TSyntax `tactic) := do
   match acc with
   | none => return tac
   | some acc => `(tactic| ($acc:tactic; $tac:tactic))
 
-partial def Stm.toTerm (stm : Stm) : MetaM (TSyntax `tactic) := do
+partial def Stm.toTerm (stm : Stm) : CoreM (TSyntax `tactic) := do
   match stm with
   | .Assert _ =>
     /-
@@ -338,9 +347,9 @@ partial def Stm.toTerm (stm : Stm) : MetaM (TSyntax `tactic) := do
   For example, if `as := #[a, b]` and `ty : Int`,
   then the result is `(a b : Int)`.
 -/
-private def makeExplicitBinder (as : Array Ident) (ty : Typ) : MetaM (TSyntax ``bracketedBinderF) := do
+private def makeExplicitBinder (as : Array String) (ty : Typ) : CoreM (TSyntax ``bracketedBinderF) := do
   let ty ← ty.toTerm
-  let binders : TSyntaxArray `ident ← as.mapM Ident.toIdent
+  let binders : TSyntaxArray `ident ← as.mapM String.toIdent
   `(bracketedBinderF| ($binders:ident* : $ty:term))
 
 /--
@@ -350,7 +359,7 @@ private def makeExplicitBinder (as : Array Ident) (ty : Typ) : MetaM (TSyntax ``
   For example, if `as := #[a, b, c]` with `a b : Int` and `c : Nat`,
   then the result is `(a b : Int) (c : Nat)`.
 -/
-private def makeExplicitBinders (as : Array (Ident × Typ)) : MetaM (TSyntaxArray ``bracketedBinder) := do
+private def makeExplicitBinders (as : Array (String × Typ)) : CoreM (TSyntaxArray ``bracketedBinder) := do
   let ⟨arr, ltis, ty?⟩ ← as.foldlM (init := (#[], #[], none)) (fun ⟨arr, likeTypIdents, ty?⟩ ⟨i, ty⟩ => do
     match ty? with
     | none =>
@@ -361,7 +370,7 @@ private def makeExplicitBinders (as : Array (Ident × Typ)) : MetaM (TSyntaxArra
         return (arr, likeTypIdents.push i, some ty)
       else
         let binder ← makeExplicitBinder likeTypIdents ty
-        return (arr.push binder, #[], some ty)
+        return (arr.push binder, #[i], some ty)
   )
 
   match ty? with
@@ -371,7 +380,7 @@ private def makeExplicitBinders (as : Array (Ident × Typ)) : MetaM (TSyntaxArra
     else throwError "empty array"
 
 
-def Assertion.toCommand (a : Assertion) : MetaM (TSyntax `command) := do
+def Assertion.toCommand (a : Assertion) : CoreM (TSyntax `command) := do
   let ⟨name, decls, body⟩ := a
   let ident ← name.toIdent
   let args ← makeExplicitBinders decls.toArray
@@ -379,7 +388,7 @@ def Assertion.toCommand (a : Assertion) : MetaM (TSyntax `command) := do
   `(command| theorem $ident $args:bracketedBinder* : $eTerm := by auto? )
 
 
-def SpecFn.toCommand (f : SpecFn) : MetaM (TSyntax `command) := do
+def SpecFn.toCommand (f : SpecFn) : CoreM (TSyntax `command) := do
   let ⟨name, inputs, returnType, body⟩ := f
   let ident ← name.toIdent
   let args ← makeExplicitBinders inputs.toArray
@@ -387,7 +396,7 @@ def SpecFn.toCommand (f : SpecFn) : MetaM (TSyntax `command) := do
   let body ← body.toTerm
   `(command| def $ident $args:bracketedBinder* : $returnType := $body )
 
-def ProofFn.toCommand (f : ProofFn) : MetaM (TSyntax `command) := do
+def ProofFn.toCommand (f : ProofFn) : CoreM (TSyntax `command) := do
   let ⟨name, inputs, requires, ensures, body⟩ := f
   let ident ← name.toIdent
   let args ← makeExplicitBinders inputs.toArray
@@ -395,7 +404,7 @@ def ProofFn.toCommand (f : ProofFn) : MetaM (TSyntax `command) := do
   let body ← body.toTerm
   if ensures.length = 0 then
     let trivialConclusion := Term.mkConst ``True
-    `(command| theorem $ident $args:bracketedBinder* : True := by
+    `(command| theorem $ident $args:bracketedBinder* : $(Syntax.mkCApp ``True #[]) := by
       $body
       trivial)
   else
@@ -403,7 +412,7 @@ def ProofFn.toCommand (f : ProofFn) : MetaM (TSyntax `command) := do
       $body
       auto? )
 
-def Struct.toCommand (s : Struct) : MetaM (TSyntax `command) := do
+def Struct.toCommand (s : Struct) : CoreM (TSyntax `command) := do
   let ⟨name, params, fields⟩ := s
   let nameAsIdent ← name.toIdent
   -- TODO: Skipping parameters for now
@@ -418,7 +427,7 @@ def Struct.toCommand (s : Struct) : MetaM (TSyntax `command) := do
     deriving $decEqIdent)
 
 
-def Enum.toCommand (e : Enum) : MetaM (TSyntax `command) := do
+def Enum.toCommand (e : Enum) : CoreM (TSyntax `command) := do
   let ⟨name, _, fields⟩ := e
   -- TODO: Type parameters
   let nameAsIdent ← name.toIdent
@@ -433,7 +442,7 @@ def Enum.toCommand (e : Enum) : MetaM (TSyntax `command) := do
     deriving $decEqIdent)
 
 
-def FuncCheckSst.toCommand (f : FuncCheckSst) : MetaM (TSyntax `command) := do
+def FuncCheckSst.toCommand (f : FuncCheckSst) : CoreM (TSyntax `command) := do
   let ⟨name, reqs, enss, decls⟩ := f
   let ident ← name.toIdent
   let reqs : Array Term ← reqs.toArray.mapM (·.toTerm)
@@ -446,7 +455,7 @@ def FuncCheckSst.toCommand (f : FuncCheckSst) : MetaM (TSyntax `command) := do
   `(command| theorem $ident $args:bracketedBinder* : $body := by auto? )
 
 
-def Decl.toTerm (d : Decl) : MetaM (TSyntax `command) := do
+def Decl.toTerm (d : Decl) : CoreM (TSyntax `command) := do
   match d with
   | .assertion a => a.toCommand
   | .specFn f => f.toCommand

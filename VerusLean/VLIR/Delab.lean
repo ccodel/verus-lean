@@ -19,7 +19,7 @@ open Lean PrettyPrinter
     (CC: I think we're okay for most things, but root-level functions like `max`
          could be problematic.)
 -/
-unsafe def Decl.toFormat (ds : List Decl) : IO (Except String String) := do
+unsafe def Decl.toFormat (ns : String) (ds : List Decl) : IO (Except String String) := do
   -- CC: Supposedly `c_t_s_p` is deprecated, so we manually include the library
   -- CC: This is *incredibly* brittle, and assumes the executable doesn't move
   -- CC: Might also need `././.lake/packages/batteries/.lake/build/lib/lean`
@@ -34,12 +34,13 @@ unsafe def Decl.toFormat (ds : List Decl) : IO (Except String String) := do
         (ctx := {
           fileName := ""
           fileMap := default
+          currNamespace := String.toName ns
         })
         (s := { env })
         (do
           try
             -- Convert the `Decl`s into Lean `Term`s
-            let syns : List (TSyntax `command) ← ds.mapM (·.toTerm.run')
+            let syns : List (TSyntax `command) ← ds.mapM (·.toTerm)
 
             /-
               Now add the `Term`s into the meta-context to ensure that
@@ -61,12 +62,12 @@ unsafe def Decl.toFormat (ds : List Decl) : IO (Except String String) := do
               bad Lean syntax (i.e., syntax that doesn't compile).
               However, the block above should prevent this from happening.
             -/
-            let mut fmt : Format := ""
+            let mut fmt : Format := .line ++ s!"namespace {ns}" ++ .line
             for syn in syns do
               fmt := fmt ++ .line ++ (
                 ← format (Formatter.categoryFormatter `command) syn
               ) ++ .line
-            return fmt ++ .line
+            return fmt ++ .line ++ s!"end {ns}" ++ .line ++ .line
           catch e =>
             dbg_trace s!"{← e.toMessageData.toString}"
             throw e

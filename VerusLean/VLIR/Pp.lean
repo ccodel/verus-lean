@@ -12,7 +12,7 @@ import VerusLean.VLIR.Defs
 
 namespace VerusLean
 
-def Ident.pp (i : Ident) : String := i
+def Ident.pp (i : Ident) : String := i.toString
 
 def Typ.pp (ty : Typ) : String :=
   match ty with
@@ -104,10 +104,10 @@ partial def Bind.pp (b : Bind) : String :=
     s!"let {v} : {tyStr} := {expStr}; "
   | .Quant q vars =>
     let qStr := Quant.pp q
-    let varsStr := vars.map (fun ⟨i, ty⟩ => s!"({i.pp} : {ty.pp})")
+    let varsStr := vars.map (fun ⟨i, ty⟩ => s!"({i} : {ty.pp})")
     s!"{qStr} {varsStr}, "
   | .Lambda vars =>
-    let varsStr := vars.map (fun ⟨i, ty⟩ => s!"({i.pp} : {ty.pp})")
+    let varsStr := vars.map (fun ⟨i, ty⟩ => s!"({i} : {ty.pp})")
     s!"λ {varsStr} =>"
 
 partial def Exp.pp (e : Exp) : String :=
@@ -184,7 +184,6 @@ partial def Stm.pp (stm : Stm) : String :=
   | _ => "stm feature not yet implemented"
 
 
-instance Ident.toString : ToString Ident := ⟨Ident.pp⟩
 instance Typ.toString : ToString Typ := ⟨Typ.pp⟩
 instance Const.toString : ToString Const := ⟨Const.pp⟩
 instance BitwiseOp.toString : ToString BitwiseOp := ⟨BitwiseOp.pp⟩

@@ -14,7 +14,31 @@ namespace VerusLean
 
 open Lean (Json ToJson FromJson)
 
-abbrev Ident := String
+abbrev Ident := Lean.Name
+
+def Ident.toString : Ident → String :=
+  Lean.Name.toString (escape := false)
+
+instance Ident.instToString : ToString Ident :=
+  ⟨Ident.toString⟩
+
+instance Ident.coeString : Coe Ident String :=
+  ⟨Ident.toString⟩
+
+def Ident.head : Ident → String
+  | .anonymous => "anonymous"
+  | .str .anonymous s => s
+  | .str n _ => Ident.head n
+  | _ => "unknown"
+
+def Ident.uncons : Ident → (String × Ident)
+  | .anonymous => ("anonymous", .anonymous)
+  | .str .anonymous s => ("anonymous", .str .anonymous s)
+  | .str (.str .anonymous s₁) s₂ => (s₁, .str .anonymous s₂)
+  | .str n s =>
+    let ⟨head, tail⟩ := Ident.uncons n
+    (head, .str tail s)
+  | _ => ("unknown", .anonymous)
 
 inductive Mode where
   | Spec
@@ -50,7 +74,7 @@ inductive Typ where
   | Char
   | StrSlice
   | Array (t : Typ)       /- Array, ignore length in Rust     -/
-  | TypParam (i : Ident)  /- Type parameter. For example, `α` in `List α`. -/
+  | TypParam (i : String)  /- Type parameter. For example, `α` in `List α`. -/
   /--
     Rust structs, corresponding to Lean `structure`s.
 
@@ -155,13 +179,13 @@ inductive UnaryOp where
 
     In Verus, this is called a `Field`, and is defined under `UnaryOpr`.
   -/
-  | Proj (dt field : Ident)
+  | Proj (dt : Ident) (field : String)
   /--
     Determines whether the element matches a given variant of an enum.
 
     In Verus, this is defined under `UnaryOpr`.
   -/
-  | IsVariant (dt variant : Ident)
+  | IsVariant (dt : Ident) (variant : String)
   /--
     coerce Typ --> Boxed(Typ)
 
@@ -228,9 +252,9 @@ mutual
 -/
 inductive Bind where
   -- CC: Verus says this is a `VarBinders`, but for now, we say that each `let x := e` has a single variable binding
-  | Let (v : Ident) (ty : Typ) (e : Exp)
-  | Quant (q : Quant) (vars : List (Ident × Typ))
-  | Lambda (vars : List (Ident × Typ))
+  | Let (v : String) (ty : Typ) (e : Exp)
+  | Quant (q : Quant) (vars : List (String × Typ))
+  | Lambda (vars : List (String × Typ))
   -- CC: Ignore choose for now
   -- | Choose ()
 deriving Repr, Inhabited, Hashable
@@ -244,13 +268,13 @@ inductive Exp where
   /-- Constant value literals. -/
   | Const (c : Const)
   /-- Local variables, as a right-hand side of an expression. -/
-  | Var (ident : Ident)
+  | Var (x : String)
   /-- Call to spec function -/
   | Call (fn : CallFun) (typs : List Typ) (exps : List Exp)
   /-- A struct constructor -/
-  | StructCtor (dt : Ident) (fields : List (Ident × Exp))
+  | StructCtor (dt : Ident) (fields : List (String × Exp))
   /-- A constructor for the datatype with the name `dt` and the given `fields`. -/
-  | EnumCtor (dt variant : Ident) (data : List (Ident × Exp))
+  | EnumCtor (dt : Ident) (variant : String) (data : List (String × Exp))
   /-- Primitive unary function application. -/
   | Unary (op : UnaryOp) (arg : Exp)
   /-- Primitive binary function application. -/
@@ -281,7 +305,7 @@ inductive Stm where
   | AssertCompute (exp : Exp) -- should never occur (removed by elaborate_function2() in verus)
   | AssertLean (exp : Exp)
   | Assume (exp : Exp)  -- we could treat these as axioms, or just "by verus"?
-  | Assign (lhs : Ident) (lhsTy : Typ) (rhs : Exp) (lhsIsInit : Bool) -- CC: In verus, LHS is a Dest, but we take a shortcut
+  | Assign (lhs : String) (lhsTy : Typ) (rhs : Exp) (lhsIsInit : Bool) -- CC: In verus, LHS is a Dest, but we take a shortcut
   | DeadEnd (stm : Stm)
   | Return (exp : Option Exp)
   | BreakOrContinue (label : Option String) (isBreak : Bool)
@@ -316,7 +340,7 @@ structure FuncCheckSst where
   postCondition : List Exp
   -- Ignore mask_set, unwind, body, and statics for now
   -- Expects no return value, and an empty body instead of a stmX in a proof fn?
-  decls : List (Ident × Typ)
+  decls : List (String × Typ)
 deriving Repr, Inhabited, Hashable
 
 /--
@@ -332,24 +356,24 @@ deriving Repr, Inhabited, Hashable
   We call this `VName` (Verus Name) to avoid clashes with Lean's `Name`.
  -/
 class VName (α : Type u) where
-  name : α → String
+  name : α → Ident
 
 structure Assertion where
   name : Ident
-  decls : List (Ident × Typ)
+  decls : List (String × Typ)
   body : Exp
 deriving Repr, Inhabited, Hashable
 
 structure SpecFn where
   name : Ident
-  inputs : List (Ident × Typ)
+  inputs : List (String × Typ)
   returnType : Typ
   body : Exp
 deriving Repr, Inhabited, Hashable
 
 structure ProofFn where
   name : Ident
-  inputs : List (Ident × Typ)
+  inputs : List (String × Typ)
   requires : List Exp
   ensures : List Exp
   body : Stm
@@ -357,18 +381,18 @@ deriving Repr, Inhabited, Hashable
 
 structure Struct where
   name : Ident
-  typeParams : List Ident := []
-  fields : List (Ident × Typ)
+  typeParams : List String := []
+  fields : List (String × Typ)
 deriving Repr, Inhabited, Hashable
 
 structure EnumField where
-  name : Ident
-  data : List (Ident × Typ) := []
+  name : String
+  data : List (String × Typ) := []
 deriving Repr, Inhabited, Hashable
 
 structure Enum where
   name : Ident
-  typeParams : List Ident := []
+  typeParams : List String := []
   fields : List EnumField
 deriving Repr, Inhabited, Hashable
 
@@ -409,7 +433,7 @@ instance Decl.instVName : VName Decl where
 
 --------------------------------------------------------------------------------
 
-def Bind.idents : Bind → List (Ident × Typ)
+def Bind.idents : Bind → List (String × Typ)
   | .Let v ty _ => [(v, ty)]
   | .Quant _ vars => vars
   | .Lambda vars => vars
@@ -510,7 +534,7 @@ def Exp.height : Exp → Nat
 
   TODO: CC Remove?
 -/
-def Exp.ident? : Exp → Option Ident
+def Exp.ident? : Exp → Option String
   | .Var i => some i
   | _ => none
 
