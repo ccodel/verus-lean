@@ -14,8 +14,20 @@ namespace VerusLean
 
 def Ident.pp (i : Ident) : String := i.toString
 
+def TypDecoration.pp (dec : TypDecoration) : String :=
+  match dec with
+  | .Ref      => "&"
+  | .MutRef   => "&mut "
+  | .Box      => "Box "
+  | .Rc       => "Rc "
+  | .Arc      => "Arc "
+  | .Ghost    => "Ghost "
+  | .Tracked  => "Tracked "
+  | .ConstPtr => "*const "
+
 def Typ.pp (ty : Typ) : String :=
   match ty with
+  | .Empty => "Empty"
   | .Unit => "Unit"
   | .Tuple t₁ t₂ => s!"({Typ.pp t₁}) × ({Typ.pp t₂})"
   | .Bool => "Bool"
@@ -25,8 +37,9 @@ def Typ.pp (ty : Typ) : String :=
   | .SInt w => s!"Int{w}"
   | .Char => "Char"
   | .StrSlice => "String"
-  | .Array t => s!"Array ({Typ.pp t})"
+  | .Array ty => s!"Array ({ty.pp})"
   | .TypParam i => i
+  | .Decorated dec ty => s!"{dec.pp}{ty.pp}"
   | .Struct name params
   | .Enum name params =>
     if params.length > 0 then

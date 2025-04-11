@@ -62,8 +62,26 @@ inductive IntRange where
   | ISize
 deriving Repr, Inhabited, DecidableEq, Hashable
 
+/--
+  Rust and Verus type decorations.
+
+  Type decorations mark the reference/mutability of a type.
+  In Lean, we largely ignore these.
+-/
+inductive TypDecoration where
+  | Ref       -- `&T`
+  | MutRef    -- `&mut T`
+  | Box       -- `Box<T>`
+  | Rc        -- `Rc<T>`
+  | Arc       -- `Arc<T>`
+  | Ghost     -- `Ghost<T>`
+  | Tracked   -- `Tracked<T>`
+  | ConstPtr  -- `*const T` when applied to `*mut T`
+deriving Repr, Inhabited, DecidableEq, Hashable
+
 /-- Rust type, but without Box, Rc, Arc, etc. -/
 inductive Typ where
+  | Empty                 /- In Verus, this is type-decorated as Rust's `never` -/
   | Unit                  /- In Verus, this is represented as a 0-ary tuple. -/
   | Tuple (ty₁ ty₂ : Typ) /- In Lean, these are `Prod`s. -/
   | Bool
@@ -75,6 +93,7 @@ inductive Typ where
   | StrSlice
   | Array (t : Typ)       /- Array, ignore length in Rust     -/
   | TypParam (i : String)  /- Type parameter. For example, `α` in `List α`. -/
+  | Decorated (dec : TypDecoration) (ty : Typ)
   /--
     Rust structs, corresponding to Lean `structure`s.
 
@@ -376,7 +395,7 @@ structure ProofFn where
   inputs : List (String × Typ)
   requires : List Exp
   ensures : List Exp
-  body : Stm
+  body : Option Stm
 deriving Repr, Inhabited, Hashable
 
 structure Struct where
@@ -454,12 +473,14 @@ def Typ.decEq (t₁ t₂ : Typ) : Decidable (t₁ = t₂) := by
     | _, isFalse ht₂ => simp [ht₂]; exact instDecidableFalse
   -- Array
   · exact Typ.decEq _ _
-  -- Struct/Enum
+  -- Decorated and Struct/Enum
   all_goals
   ( rename_i i₁ f₁ i₂ f₂
     by_cases hi : i₁ = i₂
     <;> simp [hi]
-    · exact Typ.decListEq f₁ f₂
+    · first
+      | exact Typ.decEq f₁ f₂
+      | exact Typ.decListEq f₁ f₂
     · exact instDecidableFalse )
 
 def Typ.decListEq (ts₁ ts₂ : List Typ) : Decidable (ts₁ = ts₂) := by
@@ -537,5 +558,12 @@ def Exp.height : Exp → Nat
 def Exp.ident? : Exp → Option String
   | .Var i => some i
   | _ => none
+
+def Struct.isVstd (s : Struct) : Bool :=
+  s.name.head = "Vstd"
+
+def Decl.shouldInclude : Decl → Bool
+  | .struct s => !s.isVstd
+  | _ => true
 
 end VerusLean

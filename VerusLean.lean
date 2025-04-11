@@ -4,3 +4,5 @@
 import VerusLean.Basic
 import VerusLean.Json
 import VerusLean.VLIR
+import VerusLean.Tactic
+import VerusLean.Vstd

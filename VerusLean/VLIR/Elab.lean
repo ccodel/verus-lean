@@ -41,6 +41,7 @@ def Ident.toIdent (i : Ident) : CoreM Lean.Ident := do
 
 def Typ.toTerm (ty : Typ) : CoreM Term := do
   match ty with
+  | .Empty => return mkIdent ``_root_.Empty
   | .Unit => return mkIdent ``_root_.Unit
   | .Tuple ty₁ ty₂ => do
     let ty₁ ← ty₁.toTerm
@@ -53,13 +54,16 @@ def Typ.toTerm (ty : Typ) : CoreM Term := do
   | .UInt _ => return mkIdent ``_root_.UInt32
   | .SInt _ => `(BitVec 32)
   | .Char => return mkIdent ``_root_.Char
-  | .StrSlice => throwError "StrSlice not supported"
+  | .StrSlice => return mkIdent ``_root_.String
   | .Array t => do
     let t ← t.toTerm
     `($ArrayIdent $t)
   | .TypParam name =>
     let nameAsIdent ← name.toIdent
     return nameAsIdent
+  | .Decorated _ ty =>
+    -- TODO: Ignore the decoration for now
+    ty.toTerm
   | .Struct name params
   | .Enum name params =>
     let nameAsIdent ← name.toIdent
@@ -400,8 +404,10 @@ def ProofFn.toCommand (f : ProofFn) : CoreM (TSyntax `command) := do
   let ⟨name, inputs, requires, ensures, body⟩ := f
   let ident ← name.toIdent
   let args ← makeExplicitBinders inputs.toArray
-  -- CC: TODO requires and ensures (currently disallowed by Verus)
-  let body ← body.toTerm
+  let body ←
+    match body with
+    | none => `(tactic| verus)
+    | some body => body.toTerm
   if ensures.length = 0 then
     let trivialConclusion := Term.mkConst ``True
     `(command| theorem $ident $args:bracketedBinder* : $(Syntax.mkCApp ``True #[]) := by

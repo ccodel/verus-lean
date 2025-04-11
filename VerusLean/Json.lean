@@ -141,6 +141,12 @@ def getObjValByPathM (j : Json) (path : List String) : m Json :=
   | .ok v => pure v
   | .error e => throw e
 
+def getBoolUnderPathM (j : Json) (path : List String) : m Bool := do
+  let v ← getObjValByPathM j path
+  match v.getBool? with
+  | .ok b => pure b
+  | .error e => throw s!"expected boolean under path \"{path}\" in {j}:\n{e}"
+
 /--
   Gets an array underneath a "dot-path".
 

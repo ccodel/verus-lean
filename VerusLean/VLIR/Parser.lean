@@ -182,21 +182,41 @@ def pathedNameFromJson (j : Json) (pathKey : String := "path") : m Ident := do
   pathed.foldlM (init := ident) (fun acc i => do
     return Lean.Name.str acc <| ← i.getStrM)
 
-def pathedNameFromNameJson (j : Json) (pathKey : String := "path") : m Ident := do
-  let nameObj ← j.getObjValM "name"
+def pathedNameFromNameJson (j : Json) (nameKey : String := "name") (pathKey : String := "path") : m Ident := do
+  let nameObj ← j.getObjValM nameKey
   pathedNameFromJson nameObj pathKey
+
+/--
+  Parse a type from an already-parsed type and a decoration.
+
+  Verus defines the empty type `never` as a type decoration, and so to catch
+  this, we parse `ty` already and return either `Empty` or a decorated type.
+-/
+def TypDecoration.fromJson (j : Json) (ty : Typ) : m Typ := do
+  match ← j.getStrM with
+  | "Never"    => return .Empty
+  | "Ref"      => return .Decorated .Ref ty
+  | "MutRef"   => return .Decorated .MutRef ty
+  | "Box"      => return .Decorated .Box ty
+  | "Rc"       => return .Decorated .Rc ty
+  | "Arc"      => return .Decorated .Arc ty
+  | "Ghost"    => return .Decorated .Ghost ty
+  | "Tracked"  => return .Decorated .Tracked ty
+  | "ConstPtr" => return .Decorated .ConstPtr ty
+  | _ => throw s!"TypDecoration.fromJson: Expected one of \{ Never, Ref, MutRef, Box, Rc, Arc, Ghost, Tracked }, got {j}"
 
 partial def Typ.fromJson (j : Json) : m Typ := do
   match j.getStr? with
   | .ok "Bool" => return .Bool
   | .ok _ => throw "unsupported primitive type"
   | .error _ =>
-    match ← j["Primitive", "Int", "ConstInt", "Datatype", "Boxed"] with
+    match ← j["Primitive", "Int", "ConstInt", "Datatype", "Boxed", "Decorate"] with
     | ("Primitive", obj) =>
       let t ← obj.getArrM
       match t[0]? with
       | some j =>
         match j.getStr? with
+        | .ok "StrSlice" => return .StrSlice
         | .ok "Array" =>
           -- In Verus, arrays are specified by their type and length
           -- We drop the length requirement (for now TODO)
@@ -266,6 +286,12 @@ partial def Typ.fromJson (j : Json) : m Typ := do
     -- Boxed types are mainly used for SMT encodings in Verus.
     -- In Lean, just take the base type.
     | ("Boxed", obj) => Typ.fromJson obj
+
+    | ("Decorate", obj) =>
+      let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 3
+      let ty ← Typ.fromJson arr[2]
+      TypDecoration.fromJson arr[0] ty
+
     | _ => throw "unsupported primitive type"
 
 /--
@@ -602,8 +628,13 @@ partial def Stm.fromJson (j : Json) : VParser Stm := do
     "Assume", "Assign", "DeadEnd", "Return", "BreakOrContinue", "If", "Loop",
     "OpenInvariant", "ClosureInner", "Block"] with
 
-  | ("Call", _) =>
-    throw "Call not yet implemented"
+  | ("Call", obj) =>
+    let fnName ← pathedNameFromNameJson obj (nameKey := "fun")
+    let typArgsArr ← obj.getArrUnderKeyM "typ_args"
+    let typArgs ← typArgsArr.mapM (fromJsonSpanned · Typ.fromJson)
+    let argsArr ← obj.getArrUnderKeyM "args"
+    let args ← argsArr.mapM (fromJsonSpanned · Exp.fromJson)
+    return .Call fnName typArgs.toList args.toList
 
   | ("Assert", obj) =>
     let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 3
@@ -742,11 +773,17 @@ def ProofFn.fromJson (j : Json) : VParser ProofFn := do
   let ensuresObj ← j.getArrByPathM ["exec_proof_check", "post_condition", "ens_exps"]
   let ensures ← ensuresObj.mapM (fromJsonSpanned · Exp.fromJson)
 
-  -- Parse the body as an expression
-  -- For proof functions, this expression is stored in the "exec_proof_check"
-  let bodyObj ← j.getObjValByPathM ["exec_proof_check", "body", "x"]
-  let bodyStm ← Stm.fromJson bodyObj
-  return ProofFn.mk name args requires.toList ensures.toList bodyStm
+  -- If the proof function is NOT marked `by (lean)`, then we don't need to
+  -- store its proof body (Verus already proved it)
+  let isLean ← j.getBoolUnderPathM ["attrs", "lean"]
+  if isLean then
+    -- Parse the body as an expression
+    -- For proof functions, this expression is stored in the "exec_proof_check"
+    let bodyObj ← j.getObjValByPathM ["exec_proof_check", "body", "x"]
+    let bodyStm ← Stm.fromJson bodyObj
+    return ProofFn.mk name args requires.toList ensures.toList bodyStm
+  else
+    return ProofFn.mk name args requires.toList ensures.toList none
 
 
 def typeParamsFromJson (j : Json) : m (List String) := do
@@ -766,21 +803,26 @@ def dataFieldsForVariantFromJson (j : Json) : m (String × Typ) := do
 
 
 def Struct.fromJson (j : Json) : VParser Struct := do
-  let name ← pathedNameFromNameJson j "Path"
+  let name ← pathedNameFromNameJson j (pathKey := "Path")
   let typeParams ← typeParamsFromJson j
 
-  /-
-    Parse the fields of the struct, under the singleton array "variants".
+  -- It is acceptable for the `Vstd` datatypes not to have any fields
+  -- Elaboration will test for these later, omitting their definitions
+  if name.head = "Vstd" then
+    return Struct.mk name typeParams []
+  else
+    /-
+      Parse the fields of the struct, under the singleton array "variants".
 
-    The "variants" are stored in an array because Verus places structs
-    and enums into the same `DatatypeX` object. For structs, there
-    is exactly one variant in the array (of the same base name as the struct),
-    with its fields stored in `fields` under the 0th entry of the outer array.
-  -/
-  let ⟨fieldsArr, _⟩ ← j.getArrUnderKeyWithSizeGeM "variants" 1
-  let fieldsArr ← fieldsArr[0].getArrUnderKeyM "fields"
-  let fields ← fieldsArr.mapM dataFieldsForVariantFromJson
-  return Struct.mk name typeParams fields.toList
+      The "variants" are stored in an array because Verus places structs
+      and enums into the same `DatatypeX` object. For structs, there
+      is exactly one variant in the array (of the same base name as the struct),
+      with its fields stored in `fields` under the 0th entry of the outer array.
+    -/
+    let ⟨fieldsArr, _⟩ ← j.getArrUnderKeyWithSizeGeM "variants" 1
+    let fieldsArr ← fieldsArr[0].getArrUnderKeyM "fields"
+    let fields ← fieldsArr.mapM dataFieldsForVariantFromJson
+    return Struct.mk name typeParams fields.toList
 
 
 def EnumField.fromJson (j : Json) : m EnumField := do
@@ -791,7 +833,7 @@ def EnumField.fromJson (j : Json) : m EnumField := do
 
 
 def Enum.fromJson (j : Json) : VParser Enum := do
-  let name ← pathedNameFromNameJson j "Path"
+  let name ← pathedNameFromNameJson j (pathKey := "Path")
   let typeParams ← typeParamsFromJson j
 
   /-

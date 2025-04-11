@@ -26,7 +26,8 @@ unsafe def Decl.toFormat (ns : String) (ds : List Decl) : IO (Except String Stri
   -- searchPathRef.set compile_time_search_path%  -- (old version)
   searchPathRef.set [s!"{(← findSysroot)}/lib/lean", ".lake/build/lib/lean"]
   let res : Except Exception Format ← Lean.withImportModules
-    (imports := #[{ module := `Init }, { module := `VerusLean.Basic }, { module := `VerusLean.Tactic.ByVerus }])
+    (imports := #[{ module := `Init }, { module := `VerusLean.Basic },
+                  { module := `VerusLean.Vstd }, { module := `VerusLean.Tactic.ByVerus }])
     (opts := Options.empty)
     (trustLevel := 0)
     (fun env => EIO.toIO' <|
@@ -40,6 +41,7 @@ unsafe def Decl.toFormat (ns : String) (ds : List Decl) : IO (Except String Stri
         (do
           try
             -- Convert the `Decl`s into Lean `Term`s
+            let ds := ds.filter Decl.shouldInclude
             let syns : List (TSyntax `command) ← ds.mapM (·.toTerm)
 
             /-
