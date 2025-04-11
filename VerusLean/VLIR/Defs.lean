@@ -404,9 +404,9 @@ structure Struct where
   fields : List (String × Typ)
 deriving Repr, Inhabited, Hashable
 
-structure EnumField where
-  name : String
-  data : List (String × Typ) := []
+inductive EnumField where
+  | labeled (name : String) (data : List (String × Typ))
+  | tuple (name : String) (tuple : List Typ)
 deriving Repr, Inhabited, Hashable
 
 structure Enum where

@@ -829,7 +829,12 @@ def EnumField.fromJson (j : Json) : m EnumField := do
   let name ← j.getStrUnderKeyM "name"
   let fieldsObj ← j.getArrUnderKeyM "fields"
   let fields ← fieldsObj.mapM dataFieldsForVariantFromJson
-  return EnumField.mk name fields.toList
+
+  -- If the fields are numbers, then we have a tuple enum field
+  if (fields[0]?.getD ("", .Unit)).fst = "0" then
+    return EnumField.tuple name <| fields.toList.map (·.snd)
+  else
+    return EnumField.labeled name fields.toList
 
 
 def Enum.fromJson (j : Json) : VParser Enum := do

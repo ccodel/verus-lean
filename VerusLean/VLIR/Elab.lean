@@ -438,10 +438,18 @@ def Enum.toCommand (e : Enum) : CoreM (TSyntax `command) := do
   -- TODO: Type parameters
   let nameAsIdent ← name.toIdent
   let fields ← fields.toArray.mapM
-    (fun ⟨variantName, data⟩ => do
-      let variant ← variantName.toIdent
-      let binders ← makeExplicitBinders data.toArray
-      `(ctor| | $variant:ident $binders:bracketedBinder* ))
+    (fun field => do
+      match field with
+      | .labeled variantName data => do
+        let variant ← variantName.toIdent
+        let binders ← makeExplicitBinders data.toArray
+        `(ctor| | $variant:ident $binders:bracketedBinder* )
+      | .tuple variantName data => do
+        let variant ← variantName.toIdent
+        let arrows ← data.foldrM (init := nameAsIdent) (fun ty acc => do
+          let ty ← ty.toTerm
+          `($ty → $acc:term))
+        `(ctor| | $variant:ident : $arrows ))
   `(command|
     inductive $nameAsIdent:ident where
       $fields:ctor*

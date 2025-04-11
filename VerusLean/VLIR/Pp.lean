@@ -233,8 +233,9 @@ def Struct.pp (s : Struct) : String :=
   s!"structure {name} ({fields})"
 
 def EnumField.pp (f : EnumField) : String :=
-  let ⟨name, data⟩ := f
-  s!"| {name} : {data} "
+  match f with
+  | .labeled name data  => s!"| {name} {data} "
+  | .tuple name ts      => s!"| {name} : {ts}"
 
 def Enum.pp (e : Enum) : String :=
   let ⟨name, _, fields⟩ := e
