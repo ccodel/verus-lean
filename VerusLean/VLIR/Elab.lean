@@ -383,6 +383,13 @@ private def makeExplicitBinders (as : Array (String × Typ)) : CoreM (TSyntaxArr
     if as.size = 0 then return #[]
     else throwError "empty array"
 
+private def makeTypeBinders (as : Array String) : CoreM (TSyntaxArray ``bracketedBinder) := do
+  Prod.fst <$> as.foldlM (init := (#[], 1)) (fun (arr, c) a => do
+    let a ← a.toIdent
+    let u ← String.toIdent s!"u{c}"
+    let binder ← `(bracketedBinderF| ($a:ident : Type $u))
+    return (arr.push binder, c + 1))
+
 
 def Assertion.toCommand (a : Assertion) : CoreM (TSyntax `command) := do
   let ⟨name, decls, body⟩ := a
@@ -390,7 +397,6 @@ def Assertion.toCommand (a : Assertion) : CoreM (TSyntax `command) := do
   let args ← makeExplicitBinders decls.toArray
   let eTerm ← body.toTerm
   `(command| theorem $ident $args:bracketedBinder* : $eTerm := by auto? )
-
 
 def SpecFn.toCommand (f : SpecFn) : CoreM (TSyntax `command) := do
   let ⟨name, inputs, returnType, body⟩ := f
@@ -421,22 +427,22 @@ def ProofFn.toCommand (f : ProofFn) : CoreM (TSyntax `command) := do
 def Struct.toCommand (s : Struct) : CoreM (TSyntax `command) := do
   let ⟨name, params, fields⟩ := s
   let nameAsIdent ← name.toIdent
-  -- TODO: Skipping parameters for now
+  let params ← makeTypeBinders params.toArray
   let fields ← fields.toArray.mapM
     (fun ⟨fieldName, fieldTy⟩ => do
       let field ← fieldName.toIdent
       let ty ← fieldTy.toTerm
       `(structSimpleBinder| $field:ident : $ty))
   `(command|
-    structure $nameAsIdent:ident where
+    structure $nameAsIdent:ident $params:bracketedBinder* where
       $fields:structSimpleBinder*
     deriving $decEqIdent)
 
 
 def Enum.toCommand (e : Enum) : CoreM (TSyntax `command) := do
-  let ⟨name, _, fields⟩ := e
-  -- TODO: Type parameters
+  let ⟨name, params, fields⟩ := e
   let nameAsIdent ← name.toIdent
+  let params ← makeTypeBinders params.toArray
   let fields ← fields.toArray.mapM
     (fun field => do
       match field with
@@ -451,7 +457,7 @@ def Enum.toCommand (e : Enum) : CoreM (TSyntax `command) := do
           `($ty → $acc:term))
         `(ctor| | $variant:ident : $arrows ))
   `(command|
-    inductive $nameAsIdent:ident where
+    inductive $nameAsIdent:ident $params:bracketedBinder* where
       $fields:ctor*
     deriving $decEqIdent)
 

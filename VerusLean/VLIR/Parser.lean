@@ -279,9 +279,9 @@ partial def Typ.fromJson (j : Json) : m Typ := do
           | some ty => return ty
       | .error _ =>
         let name ← pathedNameFromJson arr[0] "Path"
-        -- TODO: Ignoring parameters to the type for now
-        let params := []
-        return .Struct name params
+        let paramsArr ← arr[1].getArrM
+        let params ← paramsArr.mapM Typ.fromJson
+        return .Struct name params.toList
 
     -- Boxed types are mainly used for SMT encodings in Verus.
     -- In Lean, just take the base type.
