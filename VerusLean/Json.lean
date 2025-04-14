@@ -9,32 +9,32 @@ variable {m : Type → Type} [Monad m] [MonadExceptOf String m]
 def getObjValM (j : Json) (k : String) : m Json :=
   match j.getObjVal? k with
   | .ok v => pure v
-  | .error e => throw s!"{e} in {j}"
+  | .error e => throw s!"{e}, got {j}"
 
 def getArrM (j : Json) : m (Array Json) :=
   match j.getArr? with
   | .ok v => pure v
-  | .error e => throw e
+  | .error e => throw s!"{e}, got {j}"
 
 def getStrM (j : Json) : m String :=
   match j.getStr? with
   | .ok v => pure v
-  | .error e => throw e
+  | .error e => throw s!"{e}, got {j}"
 
 def getNatM (j : Json) : m Nat :=
   match j.getNat? with
   | .ok v => pure v
-  | .error e => throw e
+  | .error e => throw s!"{e}, got {j}"
 
 def getBoolM (j : Json) : m Bool :=
   match j.getBool? with
   | .ok v => pure v
-  | .error e => throw e
+  | .error e => throw s!"{e}, got {j}"
 
 def getArrValM (j : Json) (i : Nat) : m Json :=
   match j.getArrVal? i with
   | .ok v => pure v
-  | .error e => throw e
+  | .error e => throw s!"{e}, got {j}"
 
 def isObject (j : Json) : Bool :=
   match j with
@@ -45,13 +45,13 @@ def getArrUnderKey? (j : Json) (key : String) : Except String (Array Json) :=
   match j.getObjVal? key with
   | .ok (Json.arr v) => return v
   | .ok _ => throw s!"expected array under key {key}"
-  | .error e => throw e
+  | .error e => throw s!"{e} in {j}"
 
 def getArrUnderKeyM (j : Json) (key : String) : m (Array Json) := do
   match j.getObjVal? key with
   | .ok (Json.arr v) => return v
   | .ok _ => throw s!"expected array under key {key}"
-  | .error e => throw e
+  | .error e => throw s!"{e} in {j}"
 
 def getStrUnderKey? (j : Json) (key : String) : Except String String :=
   match j.getObjVal? key with

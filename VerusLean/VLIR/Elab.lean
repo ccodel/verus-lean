@@ -30,6 +30,9 @@ private def FalseIdent : Lean.Ident := mkIdent ``False
 private def ArrayIdent : Lean.Ident := mkIdent ``Array
 private def decEqIdent : Lean.Ident := mkIdent ``DecidableEq
 
+inductive Air where
+  | named (name : String)
+
 def Ident.toIdent (i : Ident) : CoreM Lean.Ident := do
   -- Drop the head of the pathed identifier if it matches the current namespace
   let ⟨h, tl⟩ := i.uncons
@@ -71,6 +74,7 @@ def Typ.toTerm (ty : Typ) : CoreM Term := do
     params.foldlM (init := nameAsIdent) (fun s ⟨ty, _⟩ => do
       let tyTerm ← ty.toTerm
       `($s:term $tyTerm:term))
+  | .AirNamed _ => return mkIdent ``Air
 
 
 def Const.toTerm (c : Const) : CoreM Term := do

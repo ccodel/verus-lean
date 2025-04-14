@@ -178,8 +178,9 @@ def pathedNameFromJson (j : Json) (pathKey : String := "path") : m Ident := do
   let krate ← nameObj.getStrUnderKeyM "krate"
   let krate := String.capitalize krate
   let ident := Lean.Name.str .anonymous krate
-  let ⟨pathed, _⟩ ← nameObj.getArrUnderKeyWithSizeGeM "segments" 1
-  pathed.foldlM (init := ident) (fun acc i => do
+  let startIdx := if krate = "Vstd" then 1 else 0 -- skip "file" segment if vstd
+  let pathed ← nameObj.getArrUnderKeyM "segments"
+  pathed.foldlM (init := ident) (start := startIdx) (fun acc i => do
     return Lean.Name.str acc <| ← i.getStrM)
 
 def pathedNameFromNameJson (j : Json) (nameKey : String := "name") (pathKey : String := "path") : m Ident := do
@@ -210,7 +211,7 @@ partial def Typ.fromJson (j : Json) : m Typ := do
   | .ok "Bool" => return .Bool
   | .ok _ => throw "unsupported primitive type"
   | .error _ =>
-    match ← j["Primitive", "Int", "ConstInt", "Datatype", "Boxed", "Decorate"] with
+    match ← j["Primitive", "Int", "ConstInt", "Datatype", "Boxed", "Decorate", "Air"] with
     | ("Primitive", obj) =>
       let t ← obj.getArrM
       match t[0]? with
@@ -291,6 +292,12 @@ partial def Typ.fromJson (j : Json) : m Typ := do
       let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 3
       let ty ← Typ.fromJson arr[2]
       TypDecoration.fromJson arr[0] ty
+
+    | ("Air", obj) =>
+      -- TODO: Remove these later?
+      -- For now, assume all AIR types are named
+      let name ← obj.getStrUnderKeyM "Named"
+      return .AirNamed name
 
     | _ => throw "unsupported primitive type"
 
@@ -469,8 +476,13 @@ def Quant.fromJson (j : Json) : m Quant := do
   | s => throw s!"[Quant.fromJson?]: Expected one of \{ Forall, Exists }, got {s}"
 
 def CallFun.fromJson (j : Json) : m CallFun := do
-  let ⟨arr, _⟩ ← j.getArrUnderKeyWithSizeGeM "Fun" 1
-  return .Fun <| ← pathedNameFromJson arr[0]
+  match ← j["Fun", "Recursive"] with
+  | ("Fun", obj) =>
+    let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 1
+    return .Fun <| ← pathedNameFromJson arr[0]
+  | ("Recursive", obj) =>
+    return .Fun <| ← pathedNameFromJson obj
+  | s => throw s!"unexpected {s}"
 
 def VarBinder.fromJson (j : Json) (key : String := "typ") : m (String × Typ) := do
   -- The parameter's name is the 0th index (the "VirParam" is the 1st index)
@@ -494,19 +506,43 @@ def Var.fromJson (j : Json) : m String := do
 mutual /- {Bind, Exp}.fromJson -/
 
 partial def Bind.fromJson (j : Json) : VParser Bind := do
-  let obj : Json ← xJsonFromSpanned j
-  match ← obj.getFirstVal ["Quant"] with
-  | ("Quant", (q : Json)) =>
-    let ⟨arr, _⟩ ← q.getArrWithSizeGeM 4
+  let obj ← xJsonFromSpanned j
+  match ← obj["Quant", "Let", "Lambda", "Choose"] with
+  | ("Quant", obj) =>
+    let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 4
     let q ← Quant.fromJson arr[0]
     let binders ← VarBinder.typBindersFromJson arr[1]
     return .Quant q binders
-  | _ => throw "unexpected"
+  | ("Let", obj) =>
+    /-
+      The type of the expression is hidden in the `SpannedTyped<ExpX>`,
+      so we need to parse the type carefully/separately.
+    -/
+    let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 1
+    let binders ← arr.mapM (fun v => do
+      let ⟨nameArr, _⟩ ← v.getArrUnderKeyWithSizeGeM "name" 1
+      let name ← nameArr[0].getStrM
+      let expObj ← v.getObjValM "a"
+      -- Get the type manually
+      let typ ← Typ.fromJson <| ← expObj.getObjValM "typ"
+      let exp ← fromJsonSpanned expObj Exp.fromJson
+      return (name, typ, exp))
+    -- TODO: Expand `Let` to include any number. For now, assume only 1
+    if hb : binders.size ≥ 1 then
+      let (name, typ, exp) := binders[0]
+      return .Let name typ exp
+    else
+      throw s!"Expected at least one binder"
+
+  | ("Lambda", _) => throw "not yet implemented Bind.Lambda"
+  | ("Choose", _) => throw "not yet implemented Bind.Choose"
+
+  | s => throw s!"unexpected: {s}"
 
 partial def Exp.fromJson (j : Json) : VParser Exp := do
   -- Expect that exactly one of the enumerated options will be true
   match ← j["Const", "Var", "VarLoc", "Call", "Ctor", "Unary", "UnaryOpr", "Binary", "If", "Bind", "ArrayLiteral"] with
-  | ("Const", obj) => do
+  | ("Const", obj) =>
     return .Const <| ← Const.fromJson obj
 
   | ("Var", obj) =>

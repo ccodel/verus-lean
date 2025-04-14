@@ -49,6 +49,7 @@ def Typ.pp (ty : Typ) : String :=
       s!"{name} {params}"
     else
       name
+  | .AirNamed name => s!"Air({name})"
 
 def Const.pp (c : Const) : String :=
   match c with

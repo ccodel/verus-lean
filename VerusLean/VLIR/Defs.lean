@@ -120,6 +120,7 @@ inductive Typ where
     use the datatype map in `Parser.lean`.
   -/
   | Enum (name : Ident) (params : List Typ)
+  | AirNamed (str : String)
 deriving Repr, Inhabited, Hashable
 
 /-- Constant value literals -/
