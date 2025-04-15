@@ -408,7 +408,7 @@ private def makeArrows (exps : Array Exp) : CoreM (TSyntax `term) := do
     `($(Syntax.mkCApp ``True #[]))
   else
     let e ← Exp.toTerm exps[0]
-    exps.foldlM (init := e) (fun acc e => do
+    exps.foldlM (start := 1) (init := e) (fun acc e => do
       let e ← e.toTerm
       `($acc:term → $e:term))
 
