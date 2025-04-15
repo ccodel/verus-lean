@@ -64,6 +64,14 @@ def singleton (a : α) : Set α :=
 
 instance instSingleton : Singleton α (Set α) := ⟨Set.singleton⟩
 
+def insert (a : α) (S : Set α) : Set α :=
+  fun x => x = a ∨ S x
+
+instance instInsert : Insert α (Set α) := ⟨Set.insert⟩
+
+def remove (a : α) (S : Set α) : Set α :=
+  fun x => x ≠ a ∧ S x
+
 def union (S₁ S₂ : Set α) : Set α :=
   fun x => S₁ x ∨ S₂ x
 
@@ -89,75 +97,50 @@ def compl (S : Set α) : Set α :=
 def symmDifference (S₁ S₂ : Set α) : Set α :=
   fun x => (S₁ x ∧ ¬ S₂ x) ∨ (¬ S₁ x ∧ S₂ x)
 
-def insert (a : α) (S : Set α) : Set α :=
-  fun x => x = a ∨ S x
-
-instance instInsert : Insert α (Set α) := ⟨Set.insert⟩
-
-def remove (a : α) (S : Set α) : Set α :=
-  fun x => x ≠ a ∧ S x
-
 def filter (p : α → Prop) (S : Set α) : Set α :=
   inter (p : Set α) S
 
--- CC: Maybe phrase in terms of Surjectivity in Batteries?
--- CZ: can't find anything about `Surjective` in Batteries
--- A type is `Finite` if it is in bijective correspondence to some `Fin n`
-def finite (S : Set α) : Prop :=
-  ∃ (n : Nat) (f : Fin n → α), ∀ x, (x ∈ S ↔ ∃ i, f i = x)
+-- A type is `finite'` if it is in bijective correspondence to some `Fin n`
+-- def finite' (S : Set α) : Prop :=
+--   ∃ (n : Nat) (f : Fin n → α), ∀ x, (x ∈ S ↔ ∃ i, f i = x)
 
 def surj_on (f : α → β) (S : Set α) : Prop :=
   ∀ (a1 a2), S.contains a1 ∧ S.contains a2 ∧ a1 ≠ a2 → f a1 ≠ f a2
 
--- CZ: An alternate definition of `finite`, a direct translation of `finite` in Vstd
--- Note that this version has no bijection, so `ub` is not the cardinality
-def finite' (S : Set α) : Prop :=
-  ∃ (f : α → Nat) (ub : Nat), surj_on f S ∧ ∀ a, a ∈ S → f a < ub
+-- CZ: A direct translation of `finite` in Vstd
+def finite (S : Set α) : Prop :=
+  ∃ (f : α → Nat) (ub : Nat), (surj_on f S) ∧ (∀ a, a ∈ S → f a < ub)
 
-noncomputable def card (S : Set α) (h_finite : finite S) : Nat :=
-  -- CC: Have fun!
-  -- There's probably some assumptions about the minimal `n` you need under `finite`
-  Exists.choose h_finite
-
-noncomputable def card' (S : Set α) (h_finite : finite' S) : Nat :=
-  Exists.choose (Exists.choose_spec h_finite)
-
-def disjoint (S₁ S₂ : Set α) : Prop :=
-  ∀ ⦃x⦄, x ∈ S₁ → x ∈ S₂ → False
-  -- CC: Alternatively, `S₁ ∩ S₂ = ∅`
+-- CZ: Current definition of `finite'` does not guarantee that `f` is injective,
+-- so this can be larger than the real cardinality
+-- noncomputable def card' (S : Set α) (h_finite : finite' S) : Nat :=
+--   Exists.choose h_finite
+-- noncomputable def card (S : Set α) (h_finite : finite S) : Nat :=
+--   Exists.choose (Exists.choose_spec h_finite)
 
 -- CC: Think about whether this is the right definition
 noncomputable def choose (S : Set α) (h : ∃ x, x ∈ S) : α :=
   h.choose
 
+def disjoint (S₁ S₂ : Set α) : Prop :=
+  ∀ ⦃x⦄, x ∈ S₁ → x ∈ S₂ → False
+  -- CC: Alternatively, `S₁ ∩ S₂ = ∅`
+
 open Classical
 
--- CC: This is broken, due to possibly needing `DecidableEq α`.
---     Ponder this. Verus seems to really like fold.
---     But don't spend too much time here, since Verus seemed to take a long time to build it up
-/- noncomputable def fold (S : Set α) (f : α → β → α) (init : β) : β :=
-  if h : ∃ x, x ∈ S then
-    let x := S.choose h
-    fold (S.remove x) f (f x init)
-  else
-    init -/
-
--- Only meaningful if a set is finite.
-noncomputable def fold (S : Set α) (f : β → α → β) (init : β) (h_finite : finite S) : β :=
-  let n := Exists.choose h_finite
-  let f_finite : Fin n → α := Exists.choose (Exists.choose_spec h_finite)
-  let elemsList := (List.finRange n).map f_finite
-  List.foldl f init elemsList
-
 /- -- Only meaningful if a set is finite.
-noncomputable def fold (f : α → β → β) (b : β) (S : Set α) [∀ x, Decidable (S x)] : β :=
+noncomputable def fold'' (f : α → β → β) (b : β) (S : Set α) [∀ x, Decidable (S x)] : β :=
   if h : ∃ xs : List α, (∀ x ∈ xs, S x) ∧ xs.Nodup then
     List.foldr f b h.choose
   else
     b -/
 
--- CZ: A version based on `finite'`
-noncomputable def fold' (S : Set α) (f : β → α → β) (init : β) (h_finite : finite' S) : β :=
+def commutative (f : β → α → β) : Prop :=
+  ∀ a₁ a₂ b, f (f b a₂) a₁ = f (f b a₁) a₂
+
+-- commutative f
+noncomputable def fold (S : Set α) (f : β → α → β) (init : β)
+  (h_finite : finite S) : β :=
   let f_to_nat : α → Nat := Exists.choose h_finite
   let ub := Exists.choose (Exists.choose_spec h_finite)
   let elemsList := (List.range ub).filterMap (fun i =>
@@ -167,7 +150,14 @@ noncomputable def fold' (S : Set α) (f : β → α → β) (init : β) (h_finit
       none)
   List.foldl f init elemsList
 
--- CZ: Cardinality based on fold, a direct translation of Vstd `len`
+-- CZ: A version based on `finite'`
+-- noncomputable def fold (S : Set α) (f : β → α → β) (init : β) (h_finite : finite' S) : β :=
+--   let n := Exists.choose h_finite
+--   let f_finite : Fin n → α := Exists.choose (Exists.choose_spec h_finite)
+--   let elemsList := (List.finRange n).map f_finite
+--   List.foldl f init elemsList
+
+-- CZ: Cardinality based on `fold`, a direct translation of Vstd `len`
 noncomputable def len (S : Set α) (h_finite : finite S) : Nat :=
   fold S (fun acc _ => acc + 1) 0 h_finite
 
@@ -175,9 +165,7 @@ def map (f : α → β) (S : Set α) : Set β :=
   fun y => ∃ x, S x ∧ f x = y
 
 /-! # Lemmas -/
-
--- CC: At this point, you can probably start copying basic theorem from Mathlib.Data.Set.Basic
--- CC: For example, the below proof works straight from Mathlib
+-- CZ: Some proofs are taken from `Mathlib.Data.Set.Basic`
 
 /-! # mem -/
 
@@ -223,6 +211,7 @@ theorem union_full (S : Set α) : S ∪ full = full :=
 theorem union_self (S : Set α) : S ∪ S = S :=
   ext fun _ => iff_of_eq (or_self _)
 
+-- Verus name: axiom_set_union
 theorem mem_union_iff {S₁ S₂ : Set α} {x : α} :
     x ∈ S₁ ∪ S₂ ↔ x ∈ S₁ ∨ x ∈ S₂ :=
   Iff.rfl
@@ -263,33 +252,28 @@ theorem mem_inter_iff (S₁ S₂ : Set α) (x : α) :
     x ∈ S₁ ∩ S₂ ↔ x ∈ S₁ ∧ x ∈ S₂ :=
   Iff.rfl
 
+-- Verus name: axiom_set_difference
 theorem mem_diff (S₁ S₂ : Set α) (x : α) :
     x ∈ S₁ \ S₂ ↔ x ∈ S₁ ∧ ¬ x ∈ S₂ :=
   Iff.rfl
 
 /-! # finite -/
 
--- CC: This proof will very much depend on your definition of `finite`,
---     so be happy with that definition first
-theorem finite_empty : finite (∅ : Set α) :=
-  ⟨0, Fin.elim0,  -- The empty function from Fin 0 to α
-   λ _ =>
-     ⟨λ h => False.elim h,  -- Empty set has no elements
-      λ ⟨i, _⟩ => Fin.elim0 i⟩  -- Fin 0 is uninhabited
-  ⟩
+-- theorem finite_empty : finite' (∅ : Set α) :=
+--   ⟨0, Fin.elim0,  -- The empty function from Fin 0 to α
+--    λ _ =>
+--      ⟨λ h => False.elim h,  -- Empty set has no elements
+--       λ ⟨i, _⟩ => Fin.elim0 i⟩  -- Fin 0 is uninhabited
+--   ⟩
 
-theorem finite_empty' : finite' (∅ : Set α) :=
+-- Verus name: axiom_set_empty_finite
+theorem finite_empty : finite (∅ : Set α) :=
   ⟨fun _ => 0, 0,
    ⟨λ _ _ h => False.elim h.1,
     λ _ h => False.elim h⟩
   ⟩
 
--- CZ: I start to prove things only for `finite'`, not sure if it's any easier
-
--- theorem finite_singleton (a : α) : finite (singleton a) :=
---   by sorry
-
-theorem finite_singleton' (a : α) : finite' (singleton a) :=
+theorem finite_singleton (a : α) : finite (singleton a) :=
   let f := fun x => if x = a then 0 else 1
   ⟨f, 1,
    ⟨λ a1 a2 h => by                 -- Injectivity proof
@@ -305,12 +289,8 @@ theorem finite_singleton' (a : α) : finite' (singleton a) :=
   ⟩
 
 -- Verus calls this axiom_set_insert_finite
--- theorem finite_insert_of_finite (a : α) (S : Set α) (h : finite S) :
---     finite (insert a S) := by
---   sorry
-
-theorem finite_insert_of_finite' (a : α) (S : Set α) (h : finite' S) :
-    finite' (insert a S) :=
+theorem finite_insert_of_finite (a : α) (S : Set α) (h : finite S) :
+    finite (insert a S) :=
   match h with
   | ⟨f, ub, h_inj, h_bound⟩ =>
     let new_f : α → Nat := fun x => if x = a then ub else f x
@@ -364,12 +344,8 @@ theorem finite_insert_of_finite' (a : α) (S : Set α) (h : finite' S) :
     ⟩
 
 -- Verus calls this axiom_set_remove_finite
--- theorem finite_remove_of_finite (a : α) (S : Set α) (h : finite S) :
---     finite (remove a S) := by
---   sorry
-
-theorem finite_remove_of_finite' (a : α) (S : Set α) (h : finite' S) :
-    finite' (remove a S) := by
+theorem finite_remove_of_finite (a : α) (S : Set α) (h : finite S) :
+    finite (remove a S) := by
   rcases h with ⟨f, ub, h_inj, h_bound⟩
   refine ⟨f, ub, ?inj, ?bound⟩
   case inj => -- Injectivity proof
@@ -381,12 +357,9 @@ theorem finite_remove_of_finite' (a : α) (S : Set α) (h : finite' S) :
     simp only [Membership.mem, remove, contains, Mem] at hx
     exact h_bound x hx.2
 
--- theorem finite_union (S₁ S₂ : Set α) (h₁ : finite S₁) (h₂ : finite S₂) :
---     finite (S₁ ∪ S₂) := by
---   sorry
-
-theorem finite_union' (S₁ S₂ : Set α) (h₁ : finite' S₁) (h₂ : finite' S₂) :
-    finite' (S₁ ∪ S₂) := by
+-- Verus name: axiom_set_union_finite
+theorem finite_union (S₁ S₂ : Set α) (h₁ : finite S₁) (h₂ : finite S₂) :
+    finite (S₁ ∪ S₂) := by
   rcases h₁ with ⟨f₁, ub₁, h_inj₁, h_bound₁⟩
   rcases h₂ with ⟨f₂, ub₂, h_inj₂, h_bound₂⟩
 
@@ -443,17 +416,13 @@ theorem finite_union' (S₁ S₂ : Set α) (h₁ : finite' S₁) (h₂ : finite'
       simp [new_f, hnx₁, new_ub]
       exact h_bound₂ x hx₂
 
--- theorem finite_union_iff (S₁ S₂ : Set α) :
---     finite (S₁ ∪ S₂) ↔ finite S₁ ∧ finite S₂ := by
---   sorry
-
-theorem finite_union_iff' (S₁ S₂ : Set α) :
-    finite' (S₁ ∪ S₂) ↔ finite' S₁ ∧ finite' S₂ := by
+theorem finite_union_iff (S₁ S₂ : Set α) :
+    finite (S₁ ∪ S₂) ↔ finite S₁ ∧ finite S₂ := by
   constructor
   · intro h
     rcases h with ⟨f, ub, h_inj, h_bound⟩
     constructor
-    · -- finite' S₁
+    · -- finite S₁
       refine ⟨f, ub, ?inj, ?bound⟩
       case inj =>
         intro a1 a2 h
@@ -466,7 +435,7 @@ theorem finite_union_iff' (S₁ S₂ : Set α) :
         simp [Membership.mem, contains, Mem] at hx
         have hx' : (S₁ ∪ S₂) x := by simp [instUnion, union, contains, Mem, hx]
         apply h_bound x hx'
-    · -- finite' S₂
+    · -- finite S₂
       refine ⟨f, ub, ?inj, ?bound⟩
       case inj =>
         intro a1 a2 h
@@ -481,14 +450,10 @@ theorem finite_union_iff' (S₁ S₂ : Set α) :
         apply h_bound x hx'
   · -- Reverse direction (←)
     intro ⟨h₁, h₂⟩
-    exact finite_union' S₁ S₂ h₁ h₂
+    exact finite_union S₁ S₂ h₁ h₂
 
--- theorem finite_inter_left (S₁ S₂ : Set α) (h : finite S₁) :
---     finite (S₁ ∩ S₂) := by
---   sorry
-
-theorem finite_inter_left' (S₁ S₂ : Set α) (h : finite' S₁) :
-    finite' (S₁ ∩ S₂) := by
+theorem finite_inter_left (S₁ S₂ : Set α) (h : finite S₁) :
+    finite (S₁ ∩ S₂) := by
   rcases h with ⟨f, ub, h_inj, h_bound⟩
   refine ⟨f, ub, ?inj, ?bound⟩
 
@@ -504,28 +469,23 @@ theorem finite_inter_left' (S₁ S₂ : Set α) (h : finite' S₁) :
     simp [Membership.mem, contains, Mem] at hx
     exact h_bound x hx.1
 
--- theorem finite_inter_right (S₁ S₂ : Set α) (h : finite S₂) :
---     finite (S₁ ∩ S₂) := by
---   sorry
-
-theorem finite_inter_right' (S₁ S₂ : Set α) (h : finite' S₂) :
-    finite' (S₁ ∩ S₂) := by
+theorem finite_inter_right (S₁ S₂ : Set α) (h : finite S₂) :
+    finite (S₁ ∩ S₂) := by
   have : S₁ ∩ S₂ = S₂ ∩ S₁ := by
     ext x
     simp [Membership.mem, Mem, Inter.inter, inter, and_comm]
   rw [this]
-  exact finite_inter_left' S₂ S₁ h
+  exact finite_inter_left S₂ S₁ h
 
 -- CC: Should be a simple lemma of the above two
 -- Verus calls this axiom_set_difference_finite
--- theorem finite_inter_of_finite_of_finite (S₁ S₂ : Set α)
---     (h₁ : finite S₁) (h₂ : finite S₂) :
---     finite (S₁ ∩ S₂) := by
---   sorry
+theorem finite_inter_of_finite_of_finite (h₁ : finite S₁) (_ : finite S₂)
+    : finite (S₁ ∩ S₂) :=
+  finite_inter_left S₁ S₂ h₁
 
-theorem finite_inter_of_finite_of_finite' (h₁ : finite' S₁) (_ : finite' S₂)
-    : finite' (S₁ ∩ S₂) :=
-  finite_inter_left' S₁ S₂ h₁
+-- Verus name: axiom_set_difference_finite
+theorem finite_diff (S₁ S₂ : Set α) (h₁ : finite S₁) : finite (S₁ \ S₂) := by
+  sorry
 
 theorem choose_mem (S : Set α) (h : ∃ x, x ∈ S) : S.choose h ∈ S :=
   Classical.choose_spec h
@@ -538,10 +498,6 @@ theorem map_empty (f : α → β) : map f ∅ = ∅ := by
 theorem map_singleton (f : α → β) (a : α) :
     map f (singleton a) = singleton (f a) := by
   ext; simp [map, Membership.mem, Mem, singleton]; apply eq_comm
-
--- CC: I'm not sure if some of these theorems are true.
---     They just intuitively make sense to me.
---     But if you find that a theorem doesn't go through, then I'm wrong!
 
 @[simp]
 theorem map_union (f : α → β) (S₁ S₂ : Set α) :
@@ -566,14 +522,109 @@ theorem map_inter (f : α → β) (S₁ S₂ : Set α) :
   obtain ⟨x, ⟨h₁, h₂⟩, rfl⟩ := hy
   exact ⟨⟨x, h₁, rfl⟩, ⟨x, h₂, rfl⟩⟩
 
+theorem fold_insert (S : Set α) (a : α) (f : β → α → β) (init : β)
+  (h_finite : finite S) (h : a ∉ S) (h_comm : commutative f) :
+  fold (insert a S) f init (finite_insert_of_finite a S h_finite) = f (fold S f init h_finite) a := by
+  sorry
+
+theorem fold_empty (f : β → α → β) (init : β) :
+  fold (∅ : Set α) f init finite_empty = init := by
+  sorry
+
+theorem set_empty (a : α) : a ∉ (∅ : Set α) := by simp [empty]
+
+theorem set_insert_same (S : Set α) (a : α) : a ∈ insert a S := by
+  simp [insert, Membership.mem, Mem]
+
+theorem set_insert_different (S : Set α) (a₁ : α) (a₂ : α) (h : a₁ ≠ a₂) :
+  a₁ ∈ (insert a₂ S) ↔ a₁ ∈ S := by simp [Membership.mem, Mem, insert, h]
+
+theorem set_remove_same (S : Set α) (a : α) : a ∉ remove a S := by
+  simp [remove]
+
+theorem set_remove_insert (S : Set α) (a : α) (h : a ∈ S) :
+  insert a (remove a S) = S := by
+  ext x
+  simp_all [Membership.mem, Mem, insert, remove]
+  constructor
+  . intro h'
+    cases h' with
+    | inl h₁ => simp [h₁, h]
+    | inr h₂ => exact And.right h₂
+  . intro h'
+    cases Classical.em (x = a) with
+    | inl heq => left; exact heq
+    | inr hne => right; exact ⟨hne, h'⟩
+
+abbrev set_remove_different (S : Set α) (a₁ : α) (a₂ : α) :=
+  mem_of_ne_of_mem_remove S a₁ a₂
+
+-- theorem set_union
+-- theorem set_intersect
+-- theorem set_difference
+theorem set_complement (S : Set α) (a : α) : a ∈ compl S ↔ a ∉ S := by
+  simp [compl, Membership.mem, Mem]
+
+theorem set_ext_equal (S₁ S₂ : Set α) : S₁ = S₂ ↔ ∀ x, x ∈ S₁ ↔ x ∈ S₂ := by
+  constructor
+  . intro h; simp [h]
+  . exact ext
+
 -- CC: At the bottom of `set.rs` is a variety of theorems about how
 --     cardinality commutes with ∪, ∩, insert, etc.
 --     Try writing some theorem statements and proofs.
 
--- theorem set_empty_len : card (∅ : Set α) (h : finite ∅) = 0 := by sorry
+/-! # len -/
 
--- theorem set_empty_len' : len (∅ : Set α) (h : finite ∅) = 0 := by sorry
+theorem set_empty_len : len (∅ : Set α) (h : finite ∅) = 0 := by
+  simp [len, fold_empty]
 
+theorem set_insert_len (S : Set α) (a : α) (h : finite S) :
+  len (insert a S) (finite_insert_of_finite a S h) = len S h + if a ∈ S then 0 else 1 := by
+  cases Classical.em (a ∈ S) with
+  | inl h_inS =>
+    have heq : S = insert a S := by ext x; simp_all [insert, Membership.mem, Mem]
+    simp [h_inS, ← heq]
+  | inr h_ninS =>
+    simp [h_ninS, len]
+    exact fold_insert S a (fun acc _ => acc + 1) 0 h h_ninS (by simp [commutative])
+
+theorem set_remove_len (S : Set α) (a : α) (h : finite S) :
+  len (remove a S) (finite_remove_of_finite a S h) = len S h - if a ∈ S then 1 else 0 := by
+  cases Classical.em (a ∈ S) with
+  | inl h_inS =>
+    have heq : insert a (remove a S) = S := (set_remove_insert S a) h_inS
+    have k := set_insert_len (remove a S) a (finite_remove_of_finite a S h)
+    simp [heq] at k
+    simp [h_inS, k]
+  | inr h_ninS =>
+    have heq : S = remove a S := by
+      ext x; simp [remove, Membership.mem, Mem]; intro hx hxa; simp [hxa] at hx; contradiction
+    simp [h_ninS, ← heq]
+
+theorem set_contains_len (S : Set α) (a : α) (h : finite S) :
+  a ∈ S → len S h ≠ 0 := by
+  intro h_inS
+  have heq : insert a (remove a S) = S := (set_remove_insert S a) h_inS
+  have h' := finite_remove_of_finite a S h
+  have h'' := finite_insert_of_finite a (remove a S) h'
+  have k := set_insert_len (remove a S) a h'
+  simp [heq] at k
+  simp [k]
+
+theorem nonempty_of_len_ne_zero (S : Set α) (h_finite : finite S) (h_len : len S h_finite ≠ 0) :
+  ∃ x, x ∈ S := by
+  unfold len at h_len
+  -- unfold fold at h_len
+  let f := Exists.choose h_finite
+  let ub := Exists.choose (Exists.choose_spec h_finite)
+  let ⟨h_inj, h_bound⟩ := Exists.choose_spec (Exists.choose_spec h_finite)
+  sorry
+
+-- A finite set `S` contains the element `S.choose()` if it has length greater than 0.
+theorem set_choose_len (S : Set α) (h : finite S) (h_len : len S h ≠ 0) :
+  choose S (nonempty_of_len_ne_zero S h h_len) ∈ S := by
+  sorry
 
 end Set
 
