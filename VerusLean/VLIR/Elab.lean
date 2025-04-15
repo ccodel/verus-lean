@@ -322,7 +322,7 @@ partial def Stm.toTerm (stm : Stm) : CoreM (TSyntax `tactic) := do
 
   | .AssertLean e =>
     let e ← e.toTerm
-    `(tactic| have : $e := by sorry )
+    `(tactic| have : $e := by auto? )
 
   | .Assign lhs lhsTy rhs _ =>
     let lhs ← lhs.toIdent
@@ -426,7 +426,7 @@ def Assertion.toCommand (a : Assertion) : CoreM (TSyntax `command) := do
   let ident ← name.toIdent
   let args ← makeExplicitBinders decls.toArray
   let eTerm ← body.toTerm
-  `(command| theorem $ident $args:bracketedBinder* : $eTerm := by sorry )
+  `(command| theorem $ident $args:bracketedBinder* : $eTerm := by auto? )
 
 def SpecFn.toCommand (f : SpecFn) : CoreM (TSyntax `command) := do
   let ⟨name, inputs, returnType, body⟩ := f
@@ -450,7 +450,7 @@ def ProofFn.toCommand (f : ProofFn) : CoreM (TSyntax `command) := do
     let trivialConclusion := Term.mkConst ``True
   `(command| theorem $ident $args:bracketedBinder* : $premises → ($conclusions) := by
     $body
-    sorry )
+    auto? )
 
 def Struct.toCommand (s : Struct) : CoreM (TSyntax `command) := do
   let ⟨name, params, fields⟩ := s
@@ -500,7 +500,7 @@ def FuncCheckSst.toCommand (f : FuncCheckSst) : CoreM (TSyntax `command) := do
   let ens : Term ← enss.foldlM (init := init) (fun acc e => `($acc && ($e)))
   let body ← `( $req → $ens )
   let args ← makeExplicitBinders decls.toArray
-  `(command| theorem $ident $args:bracketedBinder* : $body := by sorry )
+  `(command| theorem $ident $args:bracketedBinder* : $body := by auto? )
 
 
 def Decl.toTerm (d : Decl) : CoreM (TSyntax `command) := do

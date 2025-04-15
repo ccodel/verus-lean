@@ -18,7 +18,6 @@ macro (name := byAuto) "auto?" : tactic => `(tactic|
     | assumption
     | simp
     | omega
-    | sorry
   )
 
 end VerusLean
