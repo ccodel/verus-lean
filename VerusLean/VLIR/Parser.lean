@@ -818,17 +818,18 @@ def ProofFn.fromJson (j : Json) : VParser ProofFn := do
   let ensuresObj ← j.getArrByPathM ["exec_proof_check", "post_condition", "ens_exps"]
   let ensures ← ensuresObj.mapM (fromJsonSpanned · Exp.fromJson)
 
+  -- CC TODO: Still need to examine the internals for `by (lean)`
   -- If the proof function is NOT marked `by (lean)`, then we don't need to
   -- store its proof body (Verus already proved it)
-  let isLean ← j.getBoolUnderPathM ["attrs", "lean"]
-  if isLean then
-    -- Parse the body as an expression
-    -- For proof functions, this expression is stored in the "exec_proof_check"
-    let bodyObj ← j.getObjValByPathM ["exec_proof_check", "body", "x"]
-    let bodyStm ← Stm.fromJson bodyObj
-    return ProofFn.mk name args requires.toList ensures.toList bodyStm
-  else
-    return ProofFn.mk name args requires.toList ensures.toList none
+  --let isLean ← j.getBoolUnderPathM ["attrs", "lean"]
+  --if isLean then
+  -- Parse the body as an expression
+  -- For proof functions, this expression is stored in the "exec_proof_check"
+  let bodyObj ← j.getObjValByPathM ["exec_proof_check", "body", "x"]
+  let bodyStm ← Stm.fromJson bodyObj
+  return ProofFn.mk name args requires.toList ensures.toList bodyStm
+  --else
+    --return ProofFn.mk name args requires.toList ensures.toList none
 
 
 def typeParamsFromJson (j : Json) : m (List String) := do

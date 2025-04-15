@@ -244,7 +244,7 @@ partial def Exp.toTerm (e : Exp) : CoreM Term := do
       -- Verus tells us not to expect the data elements to be
       -- serialized in order, so we need to name them if there's more than one
       if numDataVals = 1 then
-        `($acc $e)
+        `($acc ($e))
       else
         `($acc ($i:ident := $e:term)))
 
@@ -322,7 +322,7 @@ partial def Stm.toTerm (stm : Stm) : CoreM (TSyntax `tactic) := do
 
   | .AssertLean e =>
     let e ← e.toTerm
-    `(tactic| have : $e := by auto?)
+    `(tactic| have : $e := by sorry )
 
   | .Assign lhs lhsTy rhs _ =>
     let lhs ← lhs.toIdent
@@ -386,7 +386,7 @@ private def makeExplicitBinders (as : Array (String × Typ)) : CoreM (TSyntaxArr
         -- Defer mapping them into bracketed binder until diff detected
         return (arr, likeTypIdents.push i, some ty)
       else
-        let binder ← makeExplicitBinder likeTypIdents ty
+        let binder ← makeExplicitBinder likeTypIdents ty'
         return (arr.push binder, #[i], some ty)
   )
 
@@ -409,7 +409,7 @@ def Assertion.toCommand (a : Assertion) : CoreM (TSyntax `command) := do
   let ident ← name.toIdent
   let args ← makeExplicitBinders decls.toArray
   let eTerm ← body.toTerm
-  `(command| theorem $ident $args:bracketedBinder* : $eTerm := by auto? )
+  `(command| theorem $ident $args:bracketedBinder* : $eTerm := by sorry )
 
 def SpecFn.toCommand (f : SpecFn) : CoreM (TSyntax `command) := do
   let ⟨name, inputs, returnType, body⟩ := f
@@ -435,7 +435,7 @@ def ProofFn.toCommand (f : ProofFn) : CoreM (TSyntax `command) := do
   else
     `(command| theorem $ident $args:bracketedBinder* : 5 = 5 := by
       $body
-      auto? )
+      sorry )
 
 def Struct.toCommand (s : Struct) : CoreM (TSyntax `command) := do
   let ⟨name, params, fields⟩ := s
@@ -485,7 +485,7 @@ def FuncCheckSst.toCommand (f : FuncCheckSst) : CoreM (TSyntax `command) := do
   let ens : Term ← enss.foldlM (init := init) (fun acc e => `($acc && ($e)))
   let body ← `( $req → $ens )
   let args ← makeExplicitBinders decls.toArray
-  `(command| theorem $ident $args:bracketedBinder* : $body := by auto? )
+  `(command| theorem $ident $args:bracketedBinder* : $body := by sorry )
 
 
 def Decl.toTerm (d : Decl) : CoreM (TSyntax `command) := do
