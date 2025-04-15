@@ -308,10 +308,11 @@ partial def Typ.fromJson (j : Json) : m Typ := do
   This annotation should be added to the state's `HashMap` when encountering a `Var`.
 -/
 def fromJsonSpanned {α : Type} (j : Json) (fj : Json → VParser α) : VParser α := do
-  let typ ← Typ.fromJson <| ← j.getObjValM "typ"
-  let x ← j.getObjVal? "x"
-  setTyp typ
-  fj x
+  -- CC (4/15/25) some expressions are commands, and don't have types(?)
+  match j.getObjVal? "typ" with
+  | .ok typObj => setTyp <| ← Typ.fromJson typObj
+  | _ => setTyp (← getTyp) -- no-op
+  fj <| ← j.getObjVal? "x"
 
 --------------------------------------------------------------------------------
 
@@ -485,12 +486,14 @@ def Quant.fromJson (j : Json) : m Quant := do
   | s => throw s!"[Quant.fromJson?]: Expected one of \{ Forall, Exists }, got {s}"
 
 def CallFun.fromJson (j : Json) : m CallFun := do
-  match ← j["Fun", "Recursive"] with
+  match ← j["Fun", "Recursive", "InternalFun"] with
   | ("Fun", obj) =>
     let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 1
     return .Fun <| ← pathedNameFromJson arr[0]
   | ("Recursive", obj) =>
     return .Fun <| ← pathedNameFromJson obj
+  | ("InternalFun", obj) =>
+    return .Fun <| String.toName <| ← obj.getStrM
   | s => throw s!"unexpected {s}"
 
 def VarBinder.fromJson (j : Json) (key : String := "typ") : m (String × Typ) := do
