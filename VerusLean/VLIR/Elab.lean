@@ -403,6 +403,23 @@ private def makeTypeBinders (as : Array String) : CoreM (TSyntaxArray ``brackete
     let binder ← `(bracketedBinderF| ($a:ident : Type $u))
     return (arr.push binder, c + 1))
 
+private def makeArrows (exps : Array Exp) : CoreM (TSyntax `term) := do
+  if h : exps.size = 0 then
+    `($(Syntax.mkCApp ``True #[]))
+  else
+    let e ← Exp.toTerm exps[0]
+    exps.foldlM (init := e) (fun acc e => do
+      let e ← e.toTerm
+      `($acc:term → $e:term))
+
+private def makeAnds (exps : Array Exp) : CoreM (TSyntax `term) := do
+  if h : exps.size = 0 then
+    `($(Syntax.mkCApp ``True #[]))
+  else
+    let e ← Exp.toTerm exps[0]
+    exps.foldlM (init := e) (fun acc e => do
+      let e ← e.toTerm
+      `($acc:term ∧ $e:term))
 
 def Assertion.toCommand (a : Assertion) : CoreM (TSyntax `command) := do
   let ⟨name, decls, body⟩ := a
@@ -427,15 +444,13 @@ def ProofFn.toCommand (f : ProofFn) : CoreM (TSyntax `command) := do
     match body with
     | none => `(tactic| verus)
     | some body => body.toTerm
+  let premises ← makeArrows requires.toArray
+  let conclusions ← makeAnds ensures.toArray
   if ensures.length = 0 then
     let trivialConclusion := Term.mkConst ``True
-    `(command| theorem $ident $args:bracketedBinder* : $(Syntax.mkCApp ``True #[]) := by
-      $body
-      trivial)
-  else
-    `(command| theorem $ident $args:bracketedBinder* : 5 = 5 := by
-      $body
-      sorry )
+  `(command| theorem $ident $args:bracketedBinder* : $premises → ($conclusions) := by
+    $body
+    sorry )
 
 def Struct.toCommand (s : Struct) : CoreM (TSyntax `command) := do
   let ⟨name, params, fields⟩ := s

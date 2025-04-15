@@ -756,7 +756,7 @@ partial def Stm.fromJson (j : Json) : VParser Stm := do
 
   | ("Block", obj) =>
     -- We enforce that the block has at least one statement
-    let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 1
+    let arr ← obj.getArrM
     let stmts ← arr.mapM (do Stm.fromJson <| ← xJsonFromSpanned ·)
     return .Block stmts.toList
 
