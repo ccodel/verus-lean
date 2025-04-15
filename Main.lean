@@ -14,7 +14,7 @@ def extract (j : Json) : (Exp × VarMap × DeclMap) :=
     dbg_trace e
     (.Const (.Bool true), ∅, ∅)
 
-def preludeString := "import VerusLean.Basic\nimport VerusLean.Tactic.ByVerus\n\nnamespace VerusLean\n"
+def preludeString := "import VerusLean.Basic\nimport VerusLean.Tactic.ByVerus\nimport VerusLean.Vstd\n\nnamespace VerusLean\n"
 def postludeString := "end VerusLean"
 
 /-

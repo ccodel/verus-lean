@@ -58,6 +58,16 @@ def Const.pp (c : Const) : String :=
   | .StrSlice s => s
   | .Char c => toString c
 
+def IntRange.pp (r : IntRange) : String :=
+  match r with
+  | .Int => "Int"
+  | .Nat => "Nat"
+  | .U u => s!"U({u})"
+  | .I i => s!"I({i})"
+  | .USize => "USize"
+  | .ISize => "ISize"
+  | .Char => "Char"
+
 def BitwiseOp.pp (op : BitwiseOp) : String :=
   match op with
   | .BitXor => " ^^^ "

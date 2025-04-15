@@ -117,6 +117,16 @@ def UnaryOp.toTerm (u : UnaryOp) (e : Term) : CoreM Term := do
   match u with
   | .Not => `(¬ ($e))
   | .BitNot _ => `(~~~ $e)
+  | .Clip range _ =>
+    -- TODO: Actual range-checking hypotheses
+    -- For now, handle the most simple cases
+    match range with
+    | .Nat => `(($e : Nat))
+    | .Int => `(($e : Int))
+    | .USize => `(($e : USize))
+    | .ISize => `(($e : ISize))
+    | .Char => `(($e : Char))
+    | _ => `($e)
   | .Trigger => `($e) -- Ignore trigger information when constructing terms
   | .Proj _ field =>
     let field ← field.toIdent
@@ -129,7 +139,6 @@ def UnaryOp.toTerm (u : UnaryOp) (e : Term) : CoreM Term := do
       | _ => $falseIdent)
   | .Box _ => `($e)   -- Ignore boxed-type information when constructing terms
   | .Unbox _ => `($e) -- Ignore boxed-type information when constructing terms
-  | _ => throwError "unsupported unary op {repr u}"
 
 def BinaryOp.toTerm (b : BinaryOp) (lhs rhs : Term) : CoreM Term := do
   match b with

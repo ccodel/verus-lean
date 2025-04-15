@@ -60,6 +60,7 @@ inductive IntRange where
   | USize
   /-- Rust's isize type -/
   | ISize
+  | Char
 deriving Repr, Inhabited, DecidableEq, Hashable
 
 /--
@@ -174,7 +175,7 @@ inductive UnaryOp where
   /-- Bitwise not -/
   | BitNot (width? : Option Nat)
   /-- Force integer value into range given by IntRange (e.g. by using mod). -/
-  | Clip (range: IntRange) (truncate: Bool)
+  | Clip (range : IntRange) (truncate : Bool)
   /-
   StrLen, // Str Slices
   StrIsAscii, // strslice_is_ascii

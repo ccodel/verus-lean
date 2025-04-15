@@ -322,6 +322,17 @@ def Mode.fromJson (j : Json) : m Mode := do
   | "Exec"  => return .Exec
   | str => throw s!"[Mode.fromJson?]: Expected one of \{ Spec, Proof, Exec }, got {str}"
 
+def IntRange.fromJson (j : Json) : m IntRange := do
+  match j.getStr? with
+  | .ok "Int" => return .Int
+  | .ok "Nat" => return .Nat
+  | .ok "USize" => return .USize
+  | .ok "ISize" => return .ISize
+  | .ok "Char" => return .Char
+  | _ =>
+    -- TODO: `U` and `I` cases
+    throw s!"Unexpected IntRange: {j}"
+
 def Const.fromJson (j : Json) : m Const := do
   match ← j["Bool", "Int", "StrSlice", "Char"] with
   | ("Bool", v) => return Const.Bool <| ← v.getBoolM
@@ -397,7 +408,6 @@ def UnaryOp.fromJson (j : Json) : m UnaryOp := do
   match j.getStr? with
   | .ok "Not"    => return .Not
   | .ok "BitNot" => throw "BitNot not yet implemented"
-  | .ok "Clip"   => throw "Clip not yet implemented"
   | .ok s => throw s!"[UnaryOp.fromJson?]: Expected one of \{ Not, BitNot, Clip }, got {s}"
   | .error _ =>
     match ← j["BitNot", "Trigger", "Clip"] with
@@ -405,11 +415,10 @@ def UnaryOp.fromJson (j : Json) : m UnaryOp := do
       let width ← widthFromJson obj
       return .BitNot width
     | ("Trigger", _) => return .Trigger
-    | ("Clip", _) =>
-    --   let range ← obj.getObjValM "range"
-    --   let truncate ← Json.getBoolM <| ← obj.getObjValM "truncate"
-    --   return .Clip range truncate
-      throw "Clip not yet implemented"
+    | ("Clip", obj) =>
+      let range ← IntRange.fromJson <| ← obj.getObjValM "range"
+      let truncate ← obj.getBoolUnderKeyM "truncate"
+      return .Clip range truncate
     | _ => throw s!"[UnaryOp.fromJson?]: Expected one of \{ BitNot, Trigger }, got {j}"
 
 /--
