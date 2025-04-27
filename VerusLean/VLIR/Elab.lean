@@ -7,6 +7,11 @@ open Lean in
 def String.toIdent (s : String) : CoreM Lean.Ident :=
   return mkIdent <| .mkSimple s
 
+open Lean in
+def String.toBinderIdent (s : String) : CoreM (TSyntax `Lean.binderIdent) := do
+  let i ← String.toIdent s
+  `(Lean.binderIdent| $i:ident)
+
 namespace VerusLean
 
 /-
@@ -29,6 +34,7 @@ private def TrueIdent : Lean.Ident := mkIdent ``True
 private def FalseIdent : Lean.Ident := mkIdent ``False
 private def ArrayIdent : Lean.Ident := mkIdent ``Array
 private def decEqIdent : Lean.Ident := mkIdent ``DecidableEq
+
 
 inductive Air where
   | named (name : String)
@@ -75,6 +81,63 @@ def Typ.toTerm (ty : Typ) : CoreM Term := do
       let tyTerm ← ty.toTerm
       `($s:term $tyTerm:term))
   | .AirNamed _ => return mkIdent ``Air
+
+
+/--
+  Makes a single explicit binder from an array of identifiers and a type.
+
+  For example, if `as := #[a, b]` and `ty : Int`,
+  then the result is `(a b : Int)`.
+-/
+private def makeBracketedBinder (as : Array String) (ty : Typ) : CoreM (TSyntax ``bracketedBinder) := do
+  let ty ← ty.toTerm
+  let binders : TSyntaxArray `ident ← as.mapM String.toIdent
+  `(bracketedBinder| ($binders:ident* : $ty:term))
+
+private def makeBracketedExplicitBinder (as : Array String) (ty : Typ) : CoreM (TSyntax ``bracketedExplicitBinders) := do
+  let ty ← ty.toTerm
+  let binders : TSyntaxArray `Lean.binderIdent ← as.mapM String.toBinderIdent
+  `(bracketedExplicitBinders| ($binders:binderIdent* : $ty:term))
+
+-- Polymorphic function to gather like-typed binder names
+private def makeBinders (as : Array (String × Typ)) (binderFn : Array String → Typ → CoreM (TSyntax α)) : CoreM (TSyntaxArray α) := do
+  let ⟨arr, likeTyps, ty?⟩ ← as.foldlM (init := (#[], #[], none)) (fun ⟨arr, likeTypIdents, ty?⟩ ⟨i, ty⟩ => do
+    match ty? with
+    | none =>
+      return (arr, likeTypIdents.push i, some ty)
+    | some ty' =>
+      if ty = ty' then
+        -- Defer mapping them into bracketed binder until diff detected
+        return (arr, likeTypIdents.push i, some ty)
+      else
+        let binder ← binderFn likeTypIdents ty'
+        return (arr.push binder, #[i], some ty))
+
+  match ty? with
+  | some ty => return arr.push (← binderFn likeTyps ty)
+  | none =>
+    if as.size = 0 then return #[]
+    else throwError "empty array"
+
+/--
+  Makes a `TSyntaxArray ``bracketedBinder` with like types collected under
+  a single bracketed binder.
+
+  For example, if `as := #[a, b, c]` with `a b : Int` and `c : Nat`,
+  then the result is `(a b : Int) (c : Nat)`.
+-/
+private def makeBracketedBinders (as : Array (String × Typ)) : CoreM (TSyntaxArray ``bracketedBinder) :=
+  makeBinders as makeBracketedBinder
+
+/--
+  Makes a `TSyntaxArray ``explicitBinder` with like types collected under
+  a single bracketed binder.
+
+  For example, if `as := #[a, b, c]` with `a b : Int` and `c : Nat`,
+  then the result is `(a b : Int) (c : Nat)`.
+-/
+private def makeBracketedExplicitBinders (as : Array (String × Typ)) : CoreM (TSyntaxArray ``bracketedExplicitBinders) :=
+  makeBinders as makeBracketedExplicitBinder
 
 
 def Const.toTerm (c : Const) : CoreM Term := do
@@ -181,30 +244,20 @@ partial def Bind.toTerm (b : Bind) (t : Term) : CoreM Term := do
   | .Quant q vars =>
     match q with
     | .Forall =>
-      let varsForall : TSyntaxArray ``bracketedBinder ←
-        vars.toArray.mapM (fun ⟨i, ty⟩ => do
-          let i ← i.toIdent
-          let ty ← ty.toTerm
-          `(bracketedBinderF| ($i : $ty))
-        )
-      `(∀ $(varsForall):bracketedBinder*, $t)
+      let vars ← makeBracketedBinders vars.toArray
+      `(∀ $(vars):bracketedBinder*, $t)
     | .Exists => do
       if [] == vars then
         throwError "empty exists"
-      let varsExists : TSyntaxArray ``bracketedExplicitBinders ←
-        vars.toArray.mapM (fun ⟨i, ty⟩ => do
-          let i ← i.toIdent
-          let ty ← ty.toTerm
-          `(bracketedExplicitBinders| ($i:ident : $ty))
-        )
-      `(∃ $(varsExists):bracketedExplicitBinders*, $t)
+      let vars ← makeBracketedExplicitBinders vars.toArray
+      `(∃ $(vars):bracketedExplicitBinders*, $t)
   | .Lambda vars =>
+    -- TODO: Polymorphic binder this as well
     let varsLambda : TSyntaxArray ``funBinder ←
       vars.toArray.mapM (fun ⟨i, ty⟩ => do
         let i ← i.toIdent
         let ty ← ty.toTerm
-        `(funBinder| ($i : $ty))
-      )
+        `(funBinder| ($i : $ty)))
     `(fun $(varsLambda):funBinder* => $t)
 
 partial def Exp.toTerm (e : Exp) : CoreM Term := do
@@ -288,7 +341,7 @@ partial def Stm.toTerm (stm : Stm) : CoreM (TSyntax `tactic) := do
 
       As of April 2025, Verus's design is driven by incremental SMT solving
       and the calculation of the weakest pre-condition. To accomplish this,
-      Verus throws `Assert`s into an `ExprX::AssertAssume` node, which is
+      Verus places `Assert`s into an `ExprX::AssertAssume` node, which is
       translated into the SST by adding an `Assert(e)` node, and then
       an `Assume(e)` node. The `Assert()` is translated into a command
       which is discharged by the SMT solver, while the `Assume()`
@@ -358,44 +411,6 @@ partial def Stm.toTerm (stm : Stm) : CoreM (TSyntax `tactic) := do
 
   | _ => `(tactic| skip)
 
-/--
-  Makes a single explicit binder from an array of identifiers and a type.
-
-  For example, if `as := #[a, b]` and `ty : Int`,
-  then the result is `(a b : Int)`.
--/
-private def makeExplicitBinder (as : Array String) (ty : Typ) : CoreM (TSyntax ``bracketedBinderF) := do
-  let ty ← ty.toTerm
-  let binders : TSyntaxArray `ident ← as.mapM String.toIdent
-  `(bracketedBinderF| ($binders:ident* : $ty:term))
-
-/--
-  Makes a `TSyntaxArray ``brackedBinder` with like types collected under
-  a single bracketed binder.
-
-  For example, if `as := #[a, b, c]` with `a b : Int` and `c : Nat`,
-  then the result is `(a b : Int) (c : Nat)`.
--/
-private def makeExplicitBinders (as : Array (String × Typ)) : CoreM (TSyntaxArray ``bracketedBinder) := do
-  let ⟨arr, ltis, ty?⟩ ← as.foldlM (init := (#[], #[], none)) (fun ⟨arr, likeTypIdents, ty?⟩ ⟨i, ty⟩ => do
-    match ty? with
-    | none =>
-      return (arr, likeTypIdents.push i, some ty)
-    | some ty' =>
-      if ty = ty' then
-        -- Defer mapping them into bracketed binder until diff detected
-        return (arr, likeTypIdents.push i, some ty)
-      else
-        let binder ← makeExplicitBinder likeTypIdents ty'
-        return (arr.push binder, #[i], some ty)
-  )
-
-  match ty? with
-  | some ty => return arr.push (← makeExplicitBinder ltis ty)
-  | none =>
-    if as.size = 0 then return #[]
-    else throwError "empty array"
-
 private def makeTypeBinders (as : Array String) : CoreM (TSyntaxArray ``bracketedBinder) := do
   Prod.fst <$> as.foldlM (init := (#[], 1)) (fun (arr, c) a => do
     let a ← a.toIdent
@@ -424,14 +439,14 @@ private def makeAnds (exps : Array Exp) : CoreM (TSyntax `term) := do
 def Assertion.toCommand (a : Assertion) : CoreM (TSyntax `command) := do
   let ⟨name, decls, body⟩ := a
   let ident ← name.toIdent
-  let args ← makeExplicitBinders decls.toArray
+  let args ← makeBracketedBinders decls.toArray
   let eTerm ← body.toTerm
   `(command| theorem $ident $args:bracketedBinder* : $eTerm := by auto? )
 
 def SpecFn.toCommand (f : SpecFn) : CoreM (TSyntax `command) := do
   let ⟨name, inputs, returnType, body⟩ := f
   let ident ← name.toIdent
-  let args ← makeExplicitBinders inputs.toArray
+  let args ← makeBracketedBinders inputs.toArray
   let returnType ← returnType.toTerm
   let body ← body.toTerm
   `(command| def $ident $args:bracketedBinder* : $returnType := $body )
@@ -439,15 +454,13 @@ def SpecFn.toCommand (f : SpecFn) : CoreM (TSyntax `command) := do
 def ProofFn.toCommand (f : ProofFn) : CoreM (TSyntax `command) := do
   let ⟨name, inputs, requires, ensures, body⟩ := f
   let ident ← name.toIdent
-  let args ← makeExplicitBinders inputs.toArray
+  let args ← makeBracketedBinders inputs.toArray
   let body ←
     match body with
     | none => `(tactic| verus)
     | some body => body.toTerm
   let premises ← makeArrows requires.toArray
   let conclusions ← makeAnds ensures.toArray
-  if ensures.length = 0 then
-    let trivialConclusion := Term.mkConst ``True
   `(command| theorem $ident $args:bracketedBinder* : $premises → ($conclusions) := by
     $body
     auto? )
@@ -476,7 +489,7 @@ def Enum.toCommand (e : Enum) : CoreM (TSyntax `command) := do
       match field with
       | .labeled variantName data => do
         let variant ← variantName.toIdent
-        let binders ← makeExplicitBinders data.toArray
+        let binders ← makeBracketedBinders data.toArray
         `(ctor| | $variant:ident $binders:bracketedBinder* )
       | .tuple variantName data => do
         let variant ← variantName.toIdent
@@ -499,7 +512,7 @@ def FuncCheckSst.toCommand (f : FuncCheckSst) : CoreM (TSyntax `command) := do
   let req : Term ← reqs.foldlM (init := init) (fun acc e => `($acc && ($e)))
   let ens : Term ← enss.foldlM (init := init) (fun acc e => `($acc && ($e)))
   let body ← `( $req → $ens )
-  let args ← makeExplicitBinders decls.toArray
+  let args ← makeBracketedBinders decls.toArray
   `(command| theorem $ident $args:bracketedBinder* : $body := by auto? )
 
 

@@ -14,6 +14,7 @@ namespace VerusLean
 
 open Lean (Json ToJson FromJson)
 
+/-- Alias for `Lean.Name`. -/
 abbrev Ident := Lean.Name
 
 def Ident.toString : Ident → String :=
@@ -39,6 +40,10 @@ def Ident.uncons : Ident → (String × Ident)
     let ⟨head, tail⟩ := Ident.uncons n
     (head, .str tail s)
   | _ => ("unknown", .anonymous)
+
+def Ident.mapTail (f : String → String) : Ident → Ident
+  | .str n s => .str n (f s)
+  | i => i
 
 inductive Mode where
   | Spec

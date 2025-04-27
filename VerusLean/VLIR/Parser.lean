@@ -55,6 +55,12 @@ def setTyp (t : Typ) : VParser Unit :=
 def getFreeVars : VParser VarMap :=
   do let st ← get; return st.freeVars
 
+def setFreeVars (fvars : List (Ident × Typ)) : VParser Unit :=
+  modify fun st => { st with freeVars := fvars.foldl (init := ∅) (fun acc ⟨i, t⟩ => acc.insert i t) }
+
+def setFreeVars' (fvars : VarMap) : VParser Unit :=
+  modify fun st => { st with freeVars := fvars }
+
 def getLocVars : VParser VarMap :=
   do let st ← get; return st.locVars
 
@@ -117,6 +123,13 @@ def restoreCurrentBoundVarsAfter (fn : VParser α) : VParser α := do
   let a ← fn
   let m := List.length <| ← getBoundVars
   popBoundVars (m - n)
+  return a
+
+def restoreCurrentFreeVarsAfter (fn : VParser α) : VParser α := do
+  let fvars ← getFreeVars
+  setFreeVars []
+  let a ← fn
+  setFreeVars' fvars
   return a
 
 /--
@@ -768,6 +781,20 @@ partial def Stm.fromJson (j : Json) : VParser Stm := do
 
 --------------------------------------------------------------------------------
 
+def Assertion.fromJson (j : Json) : VParser Assertion := do
+  let parentFunName ← pathedNameFromNameJson j (nameKey := "ParentFn")
+  let assertionId ← j.getNatUnderKeyM "AssertId"
+  let (_, parentFunName) := Ident.uncons parentFunName
+  let parentFunName := Ident.mapTail (· ++ s!"_assert_{assertionId}") parentFunName
+
+  let body ← xJsonFromSpanned j
+  let (exp, params) ← restoreCurrentFreeVarsAfter <| do
+    let exp ← fromJsonSpanned body Exp.fromJson
+    let params ← getFreeVars
+    return (exp, params.toList)
+  return Assertion.mk parentFunName params exp
+
+
 def fnParseArgs (j : Json) : VParser (List (String × Typ)) := do
   let varsJson ← j.getArrUnderKeyM "pars"
 
@@ -933,6 +960,7 @@ partial def Decl.fromJson (j : Json) : VParser Decl := do
   -- to call the appropriate helper function
   let declObj ← j.getObjValM "x"
   match ← j.getStrUnderKeyM "DeclType" with
+  | "Assert" => Assertion.fromJson j
   | "Datatype" => datatypeFromJson declObj
   | "SpecFn" => SpecFn.fromJson declObj
   | "ProofFn" => ProofFn.fromJson declObj
