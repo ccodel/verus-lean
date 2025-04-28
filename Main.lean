@@ -14,8 +14,39 @@ def extract (j : Json) : (Exp × VarMap × DeclMap) :=
     dbg_trace e
     (.Const (.Bool true), ∅, ∅)
 
-def preludeString := "import VerusLean.Basic\nimport VerusLean.Tactic.ByVerus\nimport VerusLean.Vstd\n\nnamespace VerusLean\n"
-def postludeString := "end VerusLean"
+def preludeString := String.intercalate "\n" [
+  "import VerusLean.Basic",
+  "import VerusLean.Tactic.ByVerus",
+  "import VerusLean.Vstd",
+  "",
+  "namespace VerusLean",
+  "",
+  "/-",
+  "  ------------------------------------------------------------------------------",
+  "  DEFINITION AND THEOREM STATEMENTS BETWEEN THIS COMMENT AND THE ONE BELOW",
+  "  MAY GET OVERWRITTEN BY THE VERUS-LEAN PIPELINE.",
+  "",
+  "  The pipeline script does its best to replace definitions while preserving",
+  "  any proofs, but just in case, write your full theorems below this area.",
+  "",
+  "  MAGIC COMMENT END",
+  "  ------------------------------------------------------------------------------",
+  "-/",
+  "",
+]
+
+def postludeString := String.intercalate "\n" [
+  "/-",
+  "  ------------------------------------------------------------------------------",
+  "  DEFINITION AND THEOREM STATEMENTS BETWEEN THIS COMMENT AND THE ONE ABOVE",
+  "  MAY GET OVERWRITTEN BY THE VERUS-LEAN PIPELINE.",
+  "",
+  "  MAGIC COMMENT END",
+  "  ------------------------------------------------------------------------------",
+  "-/",
+  "",
+  "end VerusLean"
+]
 
 /-
 def genFromDir (dirPath : String) : IO String := do
