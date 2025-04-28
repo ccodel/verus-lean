@@ -146,10 +146,13 @@ print("verus-lean:", verus_lean_binary)
 print()
 
 # 1. Run `verus` to generate a `serialized_{}` file in our current directory
-# TODO: Where to store hash?
+#    Skip the rest of the pipeline if the hash is the same
 verus_base_name = os.path.basename(verus_file).split(".")[0]
 serialized_file = os.path.join(cwd, f"serialized_{verus_base_name}.json")
+hash_file_path = os.path.join(cwd, f"serialized_{verus_base_name}.sha256")
+serialization_existed = os.path.exists(serialized_file)
 
+# (Re-)generate the serialization. Then compare the hashes
 verus_result = subprocess.run([verus_binary, verus_file], capture_output=True, text=True)
 if verus_result.returncode != 0:
     print("Error: verus failed to run successfully. Below is its error output:", file=sys.stderr)
@@ -157,17 +160,33 @@ if verus_result.returncode != 0:
     sys.exit(1)
 
 # The serialized file should now be in our current directory
-print("Success! verus serialized the file to:", serialized_file)
 check_for_valid_file(serialized_file, os.R_OK)
 
-# 2. Generate and write down a hash of the serialization
-# TODO fast path if hash is the same
+# Capture the SHA256 hash
 hash_result = subprocess.run(["sha256sum", serialized_file], capture_output=True, text=True)
 hash_value = hash_result.stdout.split()[0]
-hash_file_path = os.path.join(cwd, f"serialized_{verus_base_name}.sha256")
-hash_file = open(hash_file_path, "w")
-hash_file.write(hash_value + "\n")
-hash_file.close()
+
+# 2. Write down a hash, or compare hashes to skip Lean code generation
+if not serialization_existed:
+    print("Success! verus serialized the file to:", serialized_file)
+    with open(hash_file_path, "w") as hash_file:
+        hash_file.write(hash_value + "\n")
+else:
+    # There should be a hash for us to compare against
+    # Check if the hash is the same
+    check_for_valid_file(hash_file_path, os.R_OK)
+    old_hash_value = ""
+    with open(hash_file_path, "r") as hash_file:
+        old_hash_value = hash_file.readline().strip()
+
+    if hash_value == old_hash_value:
+        print("The hashes of the serialization files matched. Skipping Lean code generation.")
+        print("Success!")
+        sys.exit(0)
+    else:
+        # Update the hash file and continue with the script
+        with open(hash_file_path, "w") as hash_file:
+            hash_file.write(hash_value + "\n")
 
 # 3. Generate or update the Lean file
 if not lean_file_exists:
