@@ -109,6 +109,11 @@ parser.add_argument('--verus', type=pathlib.Path,
                     help='Path to `verus`. If not specified, the script will look for it in your $PATH.')
 parser.add_argument('--verus-lean', type=pathlib.Path,
                     help='Path to `verus-lean`. If not specified, the script will look for it in your $PATH.')
+header_group = parser.add_mutually_exclusive_group(required=False)
+header_group.add_argument('--license', type=pathlib.Path,
+                          help='Path to a license header file, which will be added to the top of the Lean file.')
+header_group.add_argument('--header', type=pathlib.Path,
+                            help='Path to a license header file, which will be added to the top of the Lean file.')
 
 (parsed, remaining) = parser.parse_known_args(sys.argv[1:])
 
@@ -209,8 +214,11 @@ else:
         lines = file.readlines()
 
     # Pipe the new Lean generation to stdout
+    # For now, assume that generation succeeded
+    # TODO: As of 4/30, `Main.lean` catches all errors, so return code will always be 0
+    #       As a workaround, we check if the first line of output is an import statement
     lean_result = subprocess.run([verus_lean_binary, serialized_file], capture_output=True, text=True)
-    if lean_result.returncode != 0:
+    if lean_result.returncode != 0 or not "import VerusLean.Basic" in lean_result.stdout:
         print("Error: verus-lean failed to run successfully. Below is its error output:", file=sys.stderr)
         print(lean_result.stderr, file=sys.stderr)
         sys.exit(1)

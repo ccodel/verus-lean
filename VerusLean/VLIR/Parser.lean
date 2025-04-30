@@ -34,7 +34,8 @@ structure ParserState where
   locVars : VarMap := {}
   -- Acts like a stack?
   boundVars : List (String × Typ) := []
-  decls : DeclMap := {}
+  defs : DeclMap := {}
+  thms : DeclMap := {}
 deriving Inhabited, Repr
 
 abbrev VParser := EStateM String ParserState
@@ -155,10 +156,20 @@ def addFreeVarIfNotBound (var : String) : VParser Unit := do
   addFreeVarWithTypIfNotBound var (← getTyp)
 
 def addDecl (d : Decl) : VParser Unit :=
-  modify fun st => { st with decls := st.decls.insert (name d) d }
+  match d with
+  | .assertion _
+  | .proofFn _ => modify fun st => { st with thms := st.thms.insert (name d) d }
+  | _ => modify fun st => { st with defs := st.defs.insert (name d) d }
 
+-- TODO: Gets only from `defs`
 def getDecl? (i : Ident) : VParser (Option Decl) :=
-  do let st ← get; return st.decls.get? i
+  do let st ← get; return st.defs.get? i
+
+def getDefs : VParser (List Decl) :=
+  do let st ← get; return st.defs.values
+
+def getThms : VParser (List Decl) :=
+  do let st ← get; return st.thms.values
 
 def coeWithState : Except String α → VParser α
   | .ok a => (fun s => Result.ok a s)
@@ -968,26 +979,28 @@ partial def Decl.fromJson (j : Json) : VParser Decl := do
 
 -- CC TODO: Returning a pair of `(namespace, decls in that namespace)` limits us
 --          from having multiple namespaces...
-partial def Decls.fromJson? (j : Json) : VParser (String × List Decl) := do
+partial def Decls.fromJson? (j : Json) : VParser (String × List Decl × List Decl) := do
   let krate ← j.getStrUnderKeyM "krate"
   let krate := krate.capitalize
 
   let declsArr ← j.getArrUnderKeyM "decls"
 
   /-
-    We monadically extract the `Decl` in each JSON object, from left to right.
+    We monadically extract the `Decl` in each JSON object, from top to bottom.
     Note that we accumulate copies of these `Decls` in the state as we go
     in the hash maps, but we are assuming that the declarations are given
     to us in a good order, so there is no need to extract the objects
     back from the hash maps at the end.
   -/
-  return Prod.mk krate <|
-    Array.toList <| ← declsArr.mapM (fun j => do
-      let decl ← Decl.fromJson j
-      addDecl decl
-      return decl)
+  let _ ← declsArr.mapM (fun j => do
+    let decl ← Decl.fromJson j
+    addDecl decl)
 
-partial def Decls.fromFile? (path : String) : IO (Except String (String × List Decl)) := do
+  let defs ← getDefs
+  let thms ← getThms
+  return (krate, defs, thms)
+
+partial def Decls.fromFile? (path : String) : IO (Except String (String × List Decl × List Decl)) := do
   let jsonStr ← IO.FS.readFile path
   let json ← IO.ofExcept <| Json.parse jsonStr
   match Decls.fromJson? json default with
