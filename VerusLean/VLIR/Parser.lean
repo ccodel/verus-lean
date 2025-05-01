@@ -36,6 +36,8 @@ structure ParserState where
   boundVars : List (String × Typ) := []
   defs : DeclMap := {}
   thms : DeclMap := {}
+  defsInRevOrder : List Ident := []
+  thmsInRevOrder : List Ident := []
 deriving Inhabited, Repr
 
 abbrev VParser := EStateM String ParserState
@@ -158,18 +160,30 @@ def addFreeVarIfNotBound (var : String) : VParser Unit := do
 def addDecl (d : Decl) : VParser Unit :=
   match d with
   | .assertion _
-  | .proofFn _ => modify fun st => { st with thms := st.thms.insert (name d) d }
-  | _ => modify fun st => { st with defs := st.defs.insert (name d) d }
+  | .proofFn _ => modify fun st => { st with
+      thms := st.thms.insert (name d) d
+      thmsInRevOrder := (name d) :: st.thmsInRevOrder }
+  | _ => modify fun st => { st with
+      defs := st.defs.insert (name d) d
+      defsInRevOrder := (name d) :: st.defsInRevOrder }
 
 -- TODO: Gets only from `defs`
 def getDecl? (i : Ident) : VParser (Option Decl) :=
   do let st ← get; return st.defs.get? i
 
-def getDefs : VParser (List Decl) :=
-  do let st ← get; return st.defs.values
+def getDefs : VParser (List Decl) := do
+  let st ← get
+  return st.defsInRevOrder.foldl (init := []) (fun acc i =>
+    match st.defs.get? i with
+    | some d => d :: acc
+    | none => acc) -- TODO: remove this case, should never happen
 
-def getThms : VParser (List Decl) :=
-  do let st ← get; return st.thms.values
+def getThms : VParser (List Decl) := do
+  let st ← get
+  return st.thmsInRevOrder.foldl (init := []) (fun acc i =>
+    match st.thms.get? i with
+    | some d => d :: acc
+    | none => acc) -- TODO: remove this case, should never happen
 
 def coeWithState : Except String α → VParser α
   | .ok a => (fun s => Result.ok a s)
