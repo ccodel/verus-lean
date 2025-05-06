@@ -439,20 +439,12 @@ private def makeAnds (exps : Array Exp) : CoreM (TSyntax `term) := do
       let e ← e.toTerm
       `($acc:term ∧ $e:term))
 
-def Assertion.toCommand (a : Assertion) (isUser : Bool) : CoreM (TSyntax `command) := do
+def Assertion.toCommand (a : Assertion) : CoreM (TSyntax `command) := do
   let ⟨name, decls, body⟩ := a
-  let userName := name.mapTail (s!"user_{·}")
-  let userIdent ← userName.toIdent
+  let ident ← name.toIdent
   let args ← makeBracketedBinders decls.toArray
   let eTerm ← body.toTerm
-  if isUser then
-    `(command| theorem $userIdent $args:bracketedBinder* : $eTerm := by auto? )
-  else
-    let ident ← name.toIdent
-    let argsAsArgs : TSyntaxArray `ident := List.toArray <|
-      decls.map (Ident.toIdent' $ String.toName $ Prod.fst ·)
-    `(command| theorem $ident $args:bracketedBinder* : $eTerm :=
-        $userIdent $argsAsArgs:ident*)
+  `(command| theorem $ident $args:bracketedBinder* : $eTerm := by auto? )
 
 def SpecFn.toCommand (f : SpecFn) : CoreM (TSyntax `command) := do
   let ⟨name, inputs, returnType, body⟩ := f
@@ -462,10 +454,9 @@ def SpecFn.toCommand (f : SpecFn) : CoreM (TSyntax `command) := do
   let body ← body.toTerm
   `(command| def $ident $args:bracketedBinder* : $returnType := $body )
 
-def ProofFn.toCommand (f : ProofFn) (isUser : Bool) : CoreM (TSyntax `command) := do
+def ProofFn.toCommand (f : ProofFn) : CoreM (TSyntax `command) := do
   let ⟨name, inputs, requires, ensures, body⟩ := f
-  let userName := name.mapTail (s!"user_{·}")
-  let userIdent ← userName.toIdent
+  let ident ← name.toIdent
   let args ← makeBracketedBinders inputs.toArray
   let body ←
     match body with
@@ -473,16 +464,9 @@ def ProofFn.toCommand (f : ProofFn) (isUser : Bool) : CoreM (TSyntax `command) :
     | some body => body.toTerm
   let premises ← makeArrows requires.toArray
   let conclusions ← makeAnds ensures.toArray
-  if isUser then
-    `(command| theorem $userIdent $args:bracketedBinder* : $premises → ($conclusions) := by
+  `(command| theorem $ident $args:bracketedBinder* : $premises → ($conclusions) := by
       $body
       auto? )
-  else
-    let ident ← name.toIdent
-    let argsAsArgs : TSyntaxArray `ident := List.toArray <|
-      inputs.map (Ident.toIdent' $ String.toName $ Prod.fst ·)
-    `(command| theorem $ident $args:bracketedBinder* : $premises → ($conclusions) :=
-      $userIdent $argsAsArgs:ident* )
 
 def Struct.toCommand (s : Struct) : CoreM (TSyntax `command) := do
   let ⟨name, params, fields⟩ := s
@@ -535,11 +519,11 @@ def FuncCheckSst.toCommand (f : FuncCheckSst) : CoreM (TSyntax `command) := do
   `(command| theorem $ident $args:bracketedBinder* : $body := by auto? )
 
 
-def Decl.toTerm (d : Decl) (isUser : Bool := false) : CoreM (TSyntax `command) := do
+def Decl.toTerm (d : Decl) : CoreM (TSyntax `command) := do
   match d with
-  | .assertion a => a.toCommand isUser
+  | .assertion a => a.toCommand
   | .specFn f => f.toCommand
-  | .proofFn f => f.toCommand isUser
+  | .proofFn f => f.toCommand
   | .struct s => s.toCommand
   | .enum e => e.toCommand
   | .func f => f.toCommand

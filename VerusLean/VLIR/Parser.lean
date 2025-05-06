@@ -808,9 +808,10 @@ partial def Stm.fromJson (j : Json) : VParser Stm := do
 
 def Assertion.fromJson (j : Json) : VParser Assertion := do
   let parentFunName ← pathedNameFromNameJson j (nameKey := "ParentFn")
-  let assertionId ← j.getNatUnderKeyM "AssertId"
+  -- let assertionId ← j.getNatUnderKeyM "AssertId"
+  let givenName ← j.getStrUnderKeyM "Name"
   let (_, parentFunName) := Ident.uncons parentFunName
-  let parentFunName := Ident.mapTail (· ++ s!"_assert_{assertionId}") parentFunName
+  let parentFunName := Ident.mapTail (· ++ s!"_assert_{givenName}") parentFunName
 
   let body ← xJsonFromSpanned j
   let (exp, params) ← restoreCurrentFreeVarsAfter <| do

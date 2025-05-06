@@ -14,39 +14,37 @@ private def warningComment : String := String.intercalate "\n" <| [
   "  YOU MAY LOSE WORK IF YOU RUN THE PIPELINE AGAIN TO RE-GENERATE THIS FILE.",
   "  Read this comment carefully to avoid this situation.",
   "",
-  "  The Verus-Lean pipeline generates three groups of declarations, in this order:",
+  "  The Verus-Lean pipeline generates two sections, in this order:",
   "",
   "      1. Data structures and Verus spec functions",
-  "      2. User theorem statements",
-  "      3. Spec theorem statements",
+  "      2. Spec theorem statements",
   "",
   "  These sections are clearly marked with comment blocks similar to this one.",
-  "  DO NOT EDIT SECTIONS (1) AND (3).",
-  "  These sections get entirely overwritten by the pipeline.",
+  "  DO NOT EDIT SECTION (1). It gets entirely overwritten by the pipeline.",
   "",
-  "  As for section (2), the pipeline script will generate new theorem statements,",
-  "  but won't change existing theorem statements. This may cause user",
-  "  and spec theorem names to be misaligned, but manually fixing the names",
-  "  shouldn't be too hard.",
+  "  It is okay to edit section (2), as long as you don't change the theorem",
+  "  statements. If the corresponding Verus file changes, then the pipeline will",
+  "  update the theorem statements and leave a MAGIC comment with the old theorem",
+  "  statement, for your reference. The pipeline leaves proofs alone.",
   "",
-  "  For more information, see [THIS FILE].",
+  "  For more information about how the pipeline works, see [THIS FILE].",
   "  ------------------------------------------------------------------------------",
   "-/",
 ]
 
 private def sectionStart (sec : String) (canEdit : Bool) : String :=
   if canEdit then
-    s!"/- Start section {sec}.\n    MAGIC COMMENT END -/"
+    s!"/- Section {sec}. MAGIC COMMENT END -/"
   else
-    s!"/- Start section {sec}.\n    DO NOT EDIT THIS SECTION. MAGIC COMMENT END -/"
+    s!"/- Section {sec}. DO NOT EDIT THIS SECTION. MAGIC COMMENT END -/"
 
 private def sectionEnd (sec : String) (canEdit : Bool) : String :=
   if canEdit then
-    s!"/- End section {sec}.\n    MAGIC COMMENT END -/"
+    s!"/- End section {sec}. MAGIC COMMENT END -/"
   else
-    s!"/- End section {sec}.\n    DO NOT EDIT THIS SECTION. MAGIC COMMENT END -/"
+    s!"/- End section {sec}. DO NOT EDIT THIS SECTION. MAGIC COMMENT END -/"
 
-private def defsSectionStr := "(1) Data structures and Verus spec functions"
+private def defsSectionStr := "(1) Definitions"
 private def defsSectionStart := sectionStart defsSectionStr false
 private def defsSectionEnd := sectionEnd defsSectionStr false
 
@@ -54,9 +52,9 @@ private def userThmsSectionStr := "(2) User theorem statements"
 private def userThmsSectionStart := sectionStart userThmsSectionStr true
 private def userThmsSectionEnd := sectionEnd userThmsSectionStr true
 
-private def specThmsSectionStr := "(3) Spec theorem statements"
-private def specThmsSectionStart := sectionStart specThmsSectionStr false
-private def specThmsSectionEnd := sectionEnd specThmsSectionStr false
+private def specThmsSectionStr := "(2) Spec theorems"
+private def specThmsSectionStart := sectionStart specThmsSectionStr true
+private def specThmsSectionEnd := sectionEnd specThmsSectionStr true
 
 private def imports : List String := [
   "VerusLean.Basic",
@@ -122,9 +120,7 @@ unsafe def Decl.toFormat (ns : String) (defs thms : List Decl) : IO (Except Stri
             let specSyns ← specDefs.mapM (·.toTerm)
 
             let thms := thms.filter Decl.shouldInclude
-            let userSyns ← thms.mapM (·.toTerm (isUser := true))
-
-            let thmSyns ← thms.mapM (·.toTerm (isUser := false))
+            let thmSyns ← thms.mapM (·.toTerm)
 
             /-
               Now add the `Term`s into the meta-context to ensure that
@@ -151,7 +147,6 @@ unsafe def Decl.toFormat (ns : String) (defs thms : List Decl) : IO (Except Stri
             let mut fmt : Format := (preludeString ns) ++ .line ++ .line
             for (s, e, syns) in
               [(defsSectionStart, defsSectionEnd, specSyns),
-              (userThmsSectionStart, userThmsSectionEnd, userSyns),
               (specThmsSectionStart, specThmsSectionEnd, thmSyns)] do
 
               fmt := fmt ++ s ++ .line
