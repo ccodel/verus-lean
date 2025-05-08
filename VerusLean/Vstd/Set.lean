@@ -2,7 +2,503 @@ import Lean
 
 namespace Vstd
 
-def Set (α : Type u) := α → Prop
+/--
+  Verus `Vstd` sets.
+
+  By default, we use the definition name from Verus.
+  Separately, we show that the set is an instance of
+  certain Lean type classes.
+
+  We use a type class for the operations,
+  and a separate type class for lawfulness,
+  to allow for plug-and-play implementations.
+-/
+class VSetLike (S : Type u) (α : outParam $ Type v)
+  extends
+    EmptyCollection S,
+    Singleton α S,
+    Membership α S,
+    Insert α S,
+    HasSubset S,
+    Union S,
+    Inter S,
+    SDiff S
+  where
+  ofList : List α → S :=
+    fun l => l.foldl (fun a s => insert s a) (∅ : S)
+  remove : α → S → S
+  symmDiff : S → S → S :=
+    fun s₁ s₂ => (s₁ \ s₂) ∪ (s₂ \ s₁)
+  disjoint : S → S → Prop :=
+    fun s₁ s₂ => ∀ a, a ∉ s₁ ∩ s₂
+  filter (s : S) (pred : α → Bool) : S
+
+class VSetF (S : Type u → Type v)
+  extends Functor S  -- Gives `map` and `mapConst`
+
+class VSet (S : Type u) (α : outParam $ Type v)
+  extends VSetLike S α
+  where
+  /- The set of all elements. -/
+  full : S
+  /- Creates a new set from the given predicate. -/
+  new (p : α → Bool) : S
+  /- The cardinality of the set. -/
+  card : S → Option Nat
+  isFinite : S → Bool :=
+    fun s => card s ≠ none
+  compl : S → S
+
+class FiniteVSet (S : Type u) (α : outParam $ Type v)
+  extends VSetLike S α
+  where
+  card : S → Nat
+  /-- Dedup-ed list. Ordering not specified. -/
+  toList : S → List α
+  fold (f : β → α → β) (init : β) : S → β
+
+
+namespace VSetLike
+
+variable [VSetLike S α]
+
+-- instance instBEq [VSetLike S α] : BEq S := ⟨beq⟩
+instance instInhabited : Inhabited (S) := ⟨∅⟩
+instance instLE : LE S := ⟨(· ⊆ ·)⟩
+instance instLT : LT S := ⟨fun s₁ s₂ => s₁ ⊆ s₂ ∧ ¬(s₂ ⊆ s₁)⟩
+instance instHAddSingleton : HAdd S α S := ⟨fun s a => insert a s⟩
+instance instHSubSingleton : HSub S α S := ⟨fun s a => remove a s⟩
+instance instHAdd : HAdd S S S := ⟨(· ∪ ·)⟩
+instance instHSub : HSub S S S := ⟨(· \ ·)⟩
+instance instHMul : HMul S S S := ⟨(· ∩ ·)⟩
+
+noncomputable def choose [VSetLike S α] {s : S} (h : ∃ x, x ∈ s) : α :=
+  h.choose
+
+end VSetLike
+
+
+open VSetLike in
+class LawfulVSetLike (S : Type u) (α : outParam $ Type v) [VSetLike S α] where
+  protected ext (s₁ s₂ : S) : (∀ (x : α), x ∈ s₁ ↔ x ∈ s₂) → s₁ = s₂
+  not_mem_empty : ∀ (a : α), a ∉ (∅ : S)
+  mem_singleton_iff {a b : α} : b ∈ ({a} : S) ↔ b = a
+  mem_ofList_iff {a : α} {l : List α} : a ∈ (ofList l : S) ↔ a ∈ l
+  subset_iff {s₁ s₂ : S} : s₁ ⊆ s₂ ↔ ∀ a, a ∈ s₁ → a ∈ s₂
+  mem_union_iff  {a : α} {s₁ s₂ : S} : a ∈ s₁ ∪ s₂ ↔ a ∈ s₁ ∨ a ∈ s₂
+  mem_inter_iff  {a : α} {s₁ s₂ : S} : a ∈ s₁ ∩ s₂ ↔ a ∈ s₁ ∧ a ∈ s₂
+  mem_sdiff_iff  {a : α} {s₁ s₂ : S} : a ∈ s₁ \ s₂ ↔ a ∈ s₁ ∧ a ∉ s₂
+  mem_remove_iff {a b : α} {s : S} : b ∈ (s - a) ↔ b ≠ a ∧ b ∈ s
+  mem_symmDiff_iff {a : α} {s₁ s₂ : S} : a ∈ symmDiff s₁ s₂ ↔ (a ∈ s₁ \ s₂ ∨ a ∈ s₂ \ s₁)
+  mem_insert_iff {a b : α} {s : S} : b ∈ (s + a) ↔ b = a ∨ b ∈ s
+  disjoint_iff {s₁ s₂ : S} : disjoint s₁ s₂ ↔ ∀ a, a ∉ s₁ ∩ s₂
+  mem_filter_iff {p : α → Bool} {s : S} {a : α} : a ∈ filter s p ↔ a ∈ s ∧ p a
+
+open LawfulVSetLike in
+attribute [simp] not_mem_empty mem_singleton_iff
+attribute [ext] LawfulVSetLike.ext
+
+open VSetLike VSet in
+class LawfulVSet (S : Type u) (α : outParam $ Type v) [VSet S α]
+  extends LawfulVSetLike S α
+  where
+  mem_full (a : α) : a ∈ (full : S)
+  mem_new (a : α) (p : α → Bool) : a ∈ (new p : S) ↔ p a
+  mem_compl (s : S) (a : α) : a ∈ compl s ↔ a ∉ s
+  -- full : S
+  -- new (p : α → Bool) : S
+  -- card : S → Nat
+  -- isFinite : S → Bool := fun s => card s ≠ none
+  -- compl : S → S
+
+namespace VSetLike
+
+open LawfulVSetLike
+
+variable [VSetLike S α] [LawfulVSetLike S α]
+
+omit [LawfulVSetLike S α] in
+theorem mem_or_not_mem (a : α) (s : S) : a ∈ s ∨ a ∉ s := by
+  by_cases h : a ∈ s
+  · exact Or.inl h
+  · exact Or.inr h
+
+/-! # subset -/
+
+theorem eq_of_subset_of_subset {s₁ s₂ : S} : s₁ ⊆ s₂ → s₂ ⊆ s₁ → s₁ = s₂ := by
+  simp only [subset_iff]
+  intro h₁ h₂
+  ext x
+  exact ⟨h₁ x, h₂ x⟩
+
+theorem subset_trans {s₁ s₂ s₃ : S} : s₁ ⊆ s₂ → s₂ ⊆ s₃ → s₁ ⊆ s₃ := by
+  simp only [subset_iff]
+  intro h₁ h₂ x h
+  exact h₂ _ (h₁ _ h)
+
+theorem le_trans {s₁ s₂ s₃ : S} : s₁ ≤ s₂ → s₂ ≤ s₃ → s₁ ≤ s₃ :=
+  subset_trans
+
+/-! # union -/
+
+@[symm]
+theorem union_comm {s₁ s₂ : S} : s₁ ∪ s₂ = s₂ ∪ s₁ := by
+  ext; simp only [mem_union_iff, or_comm]
+
+theorem union_assoc {s₁ s₂ s₃ : S} : (s₁ ∪ s₂) ∪ s₃ = s₁ ∪ (s₂ ∪ s₃) := by
+  ext; simp only [mem_union_iff, or_assoc]
+
+@[simp]
+theorem mem_empty_iff_false (a : α) : a ∈ (∅ : S) ↔ False :=
+  Iff.intro
+    (fun h => (not_mem_empty a) h)
+    (fun h => False.elim h)
+
+@[simp]
+theorem union_empty (s : S) : s ∪ ∅ = s := by
+  ext; simp only [mem_union_iff, not_mem_empty, or_false]
+
+@[simp]
+theorem empty_union (s : S) : ∅ ∪ s = s := by
+  rw [union_comm]
+  exact union_empty s
+
+@[simp]
+theorem union_self (s : S) : s ∪ s = s := by
+  ext; simp only [mem_union_iff, or_self]
+
+theorem union_of_subset {s₁ s₂ : S} : s₁ ⊆ s₂ → s₁ ∪ s₂ = s₂ := by
+  intro h
+  ext x
+  simp only [mem_union_iff, or_iff_right_iff_imp]
+  simp only [subset_iff] at h
+  exact h x
+
+/-! # inter -/
+
+@[symm]
+theorem inter_comm (s₁ s₂ : S) : s₁ ∩ s₂ = s₂ ∩ s₁ := by
+  ext; simp only [mem_inter_iff, and_comm]
+
+theorem inter_assoc (s₁ s₂ s₃ : S) : (s₁ ∩ s₂) ∩ s₃ = s₁ ∩ (s₂ ∩ s₃) := by
+  ext; simp only [mem_inter_iff, and_assoc]
+
+@[simp]
+theorem inter_empty (s : S) : s ∩ ∅ = ∅ := by
+  ext; simp only [mem_inter_iff, not_mem_empty, and_false]
+
+@[simp]
+theorem empty_inter (s : S) : ∅ ∩ s = ∅ := by
+  rw [inter_comm]
+  exact inter_empty s
+
+@[simp]
+theorem inter_self (s : S) : s ∩ s = s := by
+  ext; simp only [mem_inter_iff, and_self]
+
+@[simp]
+theorem inter_subset_left (s₁ s₂ : S) : s₁ ∩ s₂ ⊆ s₁ := by
+  simp only [subset_iff, mem_inter_iff, and_imp]
+  intros
+  assumption
+
+@[simp]
+theorem inter_subset_right (s₁ s₂ : S) : s₁ ∩ s₂ ⊆ s₂ := by
+  rw [inter_comm]
+  exact inter_subset_left s₂ s₁
+
+@[simp]
+theorem inter_union_left (s₁ s₂ : S) : s₁ ∩ (s₁ ∪ s₂) = s₁ := by
+  ext; simp only [mem_inter_iff, mem_union_iff, and_iff_left_iff_imp]
+  exact (Or.inl ·)
+
+@[simp]
+theorem inter_union_right (s₁ s₂ : S) : s₁ ∩ (s₂ ∪ s₁) = s₁ := by
+  rw [union_comm]
+  exact inter_union_left s₁ s₂
+
+@[simp]
+theorem union_inter_left (s₁ s₂ : S) : s₁ ∪ (s₁ ∩ s₂) = s₁ := by
+  ext; simp only [mem_union_iff, mem_inter_iff, or_iff_left_iff_imp, and_imp]
+  intros; assumption
+
+@[simp]
+theorem union_inter_right (s₁ s₂ : S) : s₁ ∪ (s₂ ∩ s₁) = s₁ := by
+  rw [inter_comm]
+  exact union_inter_left s₁ s₂
+
+theorem union_inter_distrib (s₁ s₂ s₃ : S)
+    : (s₁ ∪ s₂) ∩ s₃ = (s₁ ∩ s₃) ∪ (s₂ ∩ s₃) := by
+  ext; simp only [mem_union_iff, mem_inter_iff, or_and_right]
+
+theorem inter_union_distrib (s₁ s₂ s₃ : S)
+    : (s₁ ∩ s₂) ∪ s₃ = (s₁ ∪ s₃) ∩ (s₂ ∪ s₃) := by
+  ext; simp only [mem_union_iff, mem_inter_iff, and_or_right]
+
+/-! # sdiff -/
+
+@[simp]
+theorem sdiff_subset (s₁ s₂ : S) : (s₁ \ s₂) ⊆ s₁ := by
+  simp only [subset_iff, mem_sdiff_iff, and_imp]
+  intros
+  assumption
+
+@[simp]
+theorem sdiff_empty (s : S) : s \ ∅ = s := by
+  ext; simp only [mem_sdiff_iff, not_mem_empty, not_false_eq_true, and_true]
+
+@[simp]
+theorem empty_sdiff (s : S) : ∅ \ s = ∅ := by
+  ext; simp only [mem_sdiff_iff, not_mem_empty, false_and]
+
+theorem sdiff_sdiff (s₁ s₂ s₃ : S) : (s₁ \ s₂) \ s₃ = s₁ \ (s₂ ∪ s₃) := by
+  ext; simp only [mem_sdiff_iff, and_assoc, mem_union_iff, not_or]
+
+theorem sdiff_sdiff_comm (s₁ s₂ s₃ : S) :
+    (s₁ \ s₂) \ s₃ = (s₁ \ s₃) \ s₂ := by
+  ext; simp only [mem_sdiff_iff, and_assoc, and_congr_right_iff]
+  intro
+  exact And.comm
+
+@[simp]
+theorem sdiff_union_left (s₁ s₂ : S) : (s₁ \ s₂) ∪ s₁ = s₁ := by
+  ext; simp only [mem_union_iff, mem_sdiff_iff, or_iff_right_iff_imp, and_imp]
+  intros
+  assumption
+
+@[simp]
+theorem sdiff_union_right (s₁ s₂ : S) : (s₁ \ s₂) ∪ s₂ = s₁ ∪ s₂ := by
+  ext x; simp only [mem_union_iff, mem_sdiff_iff]
+  constructor
+  · rintro (⟨h, _⟩ | h)
+    · exact Or.inl h
+    · exact Or.inr h
+  · rintro (h₁ | h₁)
+    · by_cases h₂ : x ∈ s₂
+      · exact Or.inr h₂
+      · exact Or.inl ⟨h₁, h₂⟩
+    · exact Or.inr h₁
+
+/-! # insert -/
+
+@[simp]
+theorem insert_empty_eq (x : α) : (∅ : S) + x = {x} := by
+  ext; simp only [mem_insert_iff, not_mem_empty, or_false, mem_singleton_iff]
+
+instance instLawfulSingleton : LawfulSingleton α S where
+  insert_empty_eq := insert_empty_eq
+
+@[simp]
+theorem mem_insert_self (a : α) (s : S) : a ∈ (s + a) := by
+  simp only [mem_insert_iff, true_or]
+
+theorem mem_insert_of_mem {b : α} {s : S} (h : b ∈ s) (a : α) : b ∈ (s + a) := by
+  simp only [mem_insert_iff, h, or_true]
+
+@[simp]
+theorem insert_insert_self (a : α) (s : S) : (s + a) + a = s + a := by
+  ext; simp only [mem_insert_iff, or_self_left]
+
+@[simp]
+theorem insert_remove_of_mem {a : α} {s : S} (h : a ∈ s)
+    : (s - a) + a = s := by
+  ext x
+  simp only [mem_insert_iff, mem_remove_iff, ne_eq]
+  constructor
+  · rintro (rfl | ⟨_, h_mem⟩)
+    <;> assumption
+  · intro h_mem
+    by_cases h_eq : x = a
+    · exact Or.inl h_eq
+    · exact Or.inr ⟨h_eq, h_mem⟩
+
+theorem insert_insert_comm (a b : α) (s : S) : (s + a) + b = (s + b) + a := by
+  ext x; simp only [mem_insert_iff]; rw [← or_assoc, @or_comm (x = b) (x = a), or_assoc]
+
+theorem insert_union_comm (a : α) (s₁ s₂ : S) : (s₁ + a) ∪ s₂ = (s₁ ∪ s₂) + a := by
+  ext x; simp only [mem_union_iff, mem_insert_iff, or_assoc]
+
+theorem insert_eq_union_singleton (a : α) (s : S) : (s + a) = s ∪ {a} := by
+  ext x; simp only [mem_insert_iff, mem_union_iff, mem_singleton_iff, or_comm]
+
+/-! # remove -/
+
+@[simp]
+theorem remove_empty (a : α) : (∅ : S) - a = ∅ := by
+  ext; simp only [mem_remove_iff, ne_eq, not_mem_empty, and_false]
+
+@[simp]
+theorem remove_singleton_self (a : α) : ({a} : S) - a = ∅ := by
+  ext; simp only [mem_remove_iff, ne_eq, mem_singleton_iff, not_and_self, not_mem_empty]
+
+@[simp]
+theorem remove_singleton_eq_empty_iff (a b : α)
+    : ({a} : S) - b = ∅ ↔ a = b := by
+  constructor
+  · intro h
+    have h_iff := LawfulVSetLike.ext_iff.mp h
+    simp only [mem_remove_iff, ne_eq, mem_singleton_iff,
+        not_mem_empty, iff_false, not_and] at h_iff
+    false_or_by_contra
+    rename_i h_con
+    have := h_iff a h_con
+    contradiction
+  · rintro rfl
+    simp only [remove_singleton_self]
+
+@[simp]
+theorem not_mem_remove_self (a : α) (s : S) : a ∉ (s - a) := by
+  simp only [mem_remove_iff, ne_eq, not_true_eq_false, false_and, not_false_eq_true]
+
+theorem not_mem_remove_iff {a b : α} {s : S} : b ∉ (s - a) ↔ b = a ∨ b ∉ s := by
+  simp only [mem_remove_iff, ne_eq, not_and]
+  constructor
+  · intro h_imp
+    by_cases hba : b = a
+    · exact Or.inl hba
+    · exact Or.inr <| h_imp hba
+  · rintro (rfl | h_mem)
+    · simp only [not_true_eq_false, false_implies]
+    · exact fun _ => h_mem
+
+@[simp]
+theorem remove_remove (a : α) (s : S) : (s - a) - a = s - a := by
+  ext; simp only [mem_remove_iff, ne_eq, and_self_left]
+
+theorem remove_eq_sdiff_singleton (a : α) (s : S) :
+    s - a = s \ {a} := by
+  ext x; simp only [mem_remove_iff, ne_eq, mem_sdiff_iff, mem_singleton_iff, and_comm]
+
+/-! # disjoint -/
+
+theorem disjoint_iff_inter_eq_empty {s₁ s₂ : S} :
+    disjoint s₁ s₂ ↔ (s₁ ∩ s₂) = ∅ := by
+  simp only [disjoint_iff, mem_inter_iff, not_and]
+  constructor
+  · intro h
+    ext
+    simp only [mem_inter_iff, not_mem_empty, iff_false, not_and]
+    exact h _
+  · intro h a h₁ h₂
+    have := mem_inter_iff.mpr ⟨h₁, h₂⟩
+    rw [h] at this
+    exact absurd this (not_mem_empty _)
+
+theorem disjoint_comm {s₁ s₂ : S} : disjoint s₁ s₂ ↔ disjoint s₂ s₁ := by
+  simp only [disjoint_iff, inter_comm]
+
+@[simp]
+theorem disjoint_empty (s : S) : disjoint s ∅ := by
+  rw [disjoint_iff_inter_eq_empty, inter_empty]
+
+@[simp]
+theorem empty_disjoint (s : S) : disjoint ∅ s := by
+  rw [disjoint_iff_inter_eq_empty, empty_inter]
+
+@[simp]
+theorem disjoint_self_iff (s : S) : disjoint s s ↔ s = ∅ := by
+  rw [disjoint_iff_inter_eq_empty, inter_self]
+
+/-! # filter -/
+
+@[simp]
+theorem filter_subset (p : α → Bool) (s : S) :
+    filter s p ⊆ s := by
+  simp only [subset_iff, mem_filter_iff, and_imp]
+  intros
+  assumption
+
+@[simp]
+theorem filter_trivial_true (s : S) : filter s (fun _ => true) = s := by
+  ext; simp only [mem_filter_iff, and_true]
+
+@[simp]
+theorem filter_trivial_false (s : S) : filter s (fun _ => false) = ∅ := by
+  ext; simp only [mem_filter_iff, Bool.false_eq_true, and_false, not_mem_empty]
+
+@[simp]
+theorem filter_filter_self (p : α → Bool) (s : S) :
+    filter (filter s p) p = filter s p := by
+  ext; simp only [mem_filter_iff, and_self_right]
+
+@[simp]
+theorem filter_filter (p q : α → Bool) (s : S) :
+    filter (filter s p) q = filter s (fun x => p x && q x) := by
+  ext; simp only [mem_filter_iff, and_assoc, Bool.and_eq_true]
+
+theorem filter_filter_comm (p q : α → Bool) (s : S) :
+    filter (filter s p) q = filter (filter s q) p := by
+  ext; simp only [filter_filter, mem_filter_iff, Bool.and_eq_true, and_comm]
+
+theorem filter_subset_filter_of_subset {s₁ s₂ : S}
+    : s₁ ⊆ s₂ → ∀ (p : α → Bool), filter s₁ p ⊆ filter s₂ p := by
+  intro h p
+  simp only [subset_iff, mem_filter_iff, and_imp]
+  intro a h_mem hp
+  exact ⟨(subset_iff.mp h) _ h_mem, hp⟩
+
+theorem filter_subset_of_subset {s₁ s₂ : S}
+    : s₁ ⊆ s₂ → ∀ (p : α → Bool), filter s₁ p ⊆ s₂ :=
+  fun h p => subset_trans (filter_subset_filter_of_subset h p) (filter_subset _ _)
+
+/-! # map -/
+
+section map
+
+instance instMapped [VSetF SF] [VSetLike (SF α) α] : VSetLike (SF β) β := by
+
+  done
+
+variable {SF : Type u → Type v} {α : Type u} [VSetF SF] [VSetLike (SF α) α] [LawfulVSetLike (SF α) α]
+
+
+end map /- section -/
+
+end VSetLike
+
+namespace VSet
+
+open LawfulVSetLike LawfulVSet
+
+variable [VSet S α] [LawfulVSet S α]
+
+@[simp]
+theorem union_full (s : S) : s ∪ full = full := by
+  ext; simp only [mem_union_iff, mem_full, or_true]
+
+@[simp]
+theorem full_union (s : S) : full ∪ s = full := by
+  ext; simp only [mem_union_iff, mem_full, true_or]
+
+@[simp]
+theorem inter_full (s : S) : s ∩ full = s := by
+  ext; simp only [mem_inter_iff, mem_full, and_true]
+
+@[simp]
+theorem full_inter (s : S) : full ∩ s = s := by
+  ext; simp only [mem_inter_iff, mem_full, true_and]
+
+end VSet
+
+#exit
+
+
+inductive YourSet (α : Type u) where
+  | mk (elems : List α)
+
+#check Fin
+inductive MySet (α : Type u) where
+  | finite (elems : List α)
+  | inf (f : α → Bool)
+
+def Set (α : Type u) :=
+  α → Prop
+
+inductive Foo (α : Type) where
+  | bar
+  | foo (f : MySet (Foo α))
+
+#exit
 
 namespace Set
 
