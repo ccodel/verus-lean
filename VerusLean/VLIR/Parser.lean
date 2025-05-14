@@ -2,6 +2,8 @@ import VerusLean.Json
 import VerusLean.VLIR.Defs
 import VerusLean.VLIR.Pp
 import VerusLean.Basic.Monad
+import VerusLean.Vstd.Set.Defs
+import VerusLean.Vstd.Map.Defs
 import Lean
 
 namespace VerusLean
@@ -16,6 +18,10 @@ abbrev VarMap := Std.HashMap String Typ
 abbrev FnMap := Std.HashMap Ident SpecFn
 abbrev DtMap := Std.HashMap Ident Struct
 abbrev DeclMap := Std.HashMap Ident Decl
+
+private def VstdStr := "Vstd"
+private def TranslationNames : Std.HashMap Ident Ident :=
+  Vstd.SetVstdTranslationNames
 
 /--
   The parsing monad for Verus JSONs,
@@ -216,10 +222,22 @@ def pathedNameFromJson (j : Json) (pathKey : String := "path") : m Ident := do
   let krate ← nameObj.getStrUnderKeyM "krate"
   let krate := String.capitalize krate
   let ident := Lean.Name.str .anonymous krate
-  let startIdx := if krate = "Vstd" then 1 else 0 -- skip "file" segment if vstd
+  let isVstd := krate = VstdStr -- skip capitalized namespace if vstd
   let pathed ← nameObj.getArrUnderKeyM "segments"
-  pathed.foldlM (init := ident) (start := startIdx) (fun acc i => do
-    return Lean.Name.str acc <| ← i.getStrM)
+  let name ← pathed.foldlM (init := ident) (fun acc i => do
+    let name ← i.getStrM
+    let nameCap := name.capitalize
+    -- skip the middle capitalized name segment if we have a Vstd name
+    if isVstd && (name = nameCap || name.contains '%') then
+      return acc
+    else
+      return Lean.Name.str acc nameCap)
+
+  -- De-capitalize most functions (unless it's `Vstd.X`)
+  if isVstd && Ident.numSegments name ≤ 2 then
+    return name
+  else
+    return Ident.mapTail String.decapitalize name
 
 def pathedNameFromNameJson (j : Json) (nameKey : String := "name") (pathKey : String := "path") : m Ident := do
   let nameObj ← j.getObjValM nameKey
@@ -527,9 +545,19 @@ def CallFun.fromJson (j : Json) : m CallFun := do
   match ← j["Fun", "Recursive", "InternalFun"] with
   | ("Fun", obj) =>
     let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 1
-    return .Fun <| ← pathedNameFromJson arr[0]
+    let name ← pathedNameFromJson arr[0]
+    if name.head = VstdStr then
+      let name := TranslationNames.getD name name
+      return .Fun name
+    else
+      return .Fun name
   | ("Recursive", obj) =>
-    return .Fun <| ← pathedNameFromJson obj
+    let name ← pathedNameFromJson obj
+    if name.head = VstdStr then
+      let name := TranslationNames.getD name name
+      return .Fun name
+    else
+      return .Fun name
   | ("InternalFun", obj) =>
     return .Fun <| String.toName <| ← obj.getStrM
   | s => throw s!"unexpected {s}"
@@ -848,8 +876,9 @@ def fnParseArgs (j : Json) : VParser (List (String × Typ)) := do
   return vars.toList
 
 
-def SpecFn.fromJson (j : Json) : VParser SpecFn := do
+def SpecFn.fromJson (j : Json) : VParser (Option SpecFn) := do
   let name ← pathedNameFromNameJson j
+  if name.head = VstdStr then return none else
   let args ← fnParseArgs j
 
   -- TODO: This ignores other info about the return value, (a `Par` in Verus)
@@ -860,7 +889,7 @@ def SpecFn.fromJson (j : Json) : VParser SpecFn := do
   -- For spec functions, this expression is stored in the axioms
   let bodyObj ← j.getObjValByPath ["axioms", "spec_axioms", "body_exp"]
   let bodyExp ← fromJsonSpanned bodyObj Exp.fromJson
-  return SpecFn.mk name args returnType bodyExp
+  return some <| SpecFn.mk name args returnType bodyExp
 
 
 def ProofFn.fromJson (j : Json) : VParser ProofFn := do
@@ -904,14 +933,14 @@ def dataFieldsForVariantFromJson (j : Json) : m (String × Typ) := do
   return (name, typ)
 
 
-def Struct.fromJson (j : Json) : VParser Struct := do
+def Struct.fromJson (j : Json) : VParser (Option Struct) := do
   let name ← pathedNameFromNameJson j (pathKey := "Path")
   let typeParams ← typeParamsFromJson j
 
   -- It is acceptable for the `Vstd` datatypes not to have any fields
   -- Elaboration will test for these later, omitting their definitions
-  if name.head = "Vstd" then
-    return Struct.mk name typeParams []
+  if name.head = VstdStr then
+    return none
   else
     /-
       Parse the fields of the struct, under the singleton array "variants".
@@ -924,7 +953,7 @@ def Struct.fromJson (j : Json) : VParser Struct := do
     let ⟨fieldsArr, _⟩ ← j.getArrUnderKeyWithSizeGeM "variants" 1
     let fieldsArr ← fieldsArr[0].getArrUnderKeyM "fields"
     let fields ← fieldsArr.mapM dataFieldsForVariantFromJson
-    return Struct.mk name typeParams fields.toList
+    return some <| Struct.mk name typeParams fields.toList
 
 
 def EnumField.fromJson (j : Json) : m EnumField := do
@@ -956,7 +985,7 @@ def Enum.fromJson (j : Json) : VParser Enum := do
   Calls the appropriate `fromJson` helper function based on the
   value under the `"dt_type"` key.
 -/
-def datatypeFromJson (j : Json) : VParser Decl := do
+def datatypeFromJson (j : Json) : VParser (Option Decl) := do
   let dtType ← j.getStrUnderKeyM "dt_type"
   match dtType with
   | "Enum" =>
@@ -965,8 +994,7 @@ def datatypeFromJson (j : Json) : VParser Decl := do
     return enumAsDecl
   | "Struct" =>
     let struct ← Struct.fromJson j
-    let structAsDecl := Decl.struct struct
-    return structAsDecl
+    return struct.map (Decl.struct ·)
   | _ => throw s!"Unsupported datatype: {dtType}"
 
 
@@ -981,14 +1009,14 @@ def datatypeFromJson (j : Json) : VParser Decl := do
   This function will try to parse an assert first, and if that fails,
   tries to parse a function.
 -/
-partial def Decl.fromJson (j : Json) : VParser Decl := do
+partial def Decl.fromJson (j : Json) : VParser (Option Decl) := do
   -- Each `Decl` JSON has a `DeclType`, which allows us
   -- to call the appropriate helper function
   let declObj ← j.getObjValM "x"
   match ← j.getStrUnderKeyM "DeclType" with
   | "Assert" => Assertion.fromJson j
   | "Datatype" => datatypeFromJson declObj
-  | "SpecFn" => SpecFn.fromJson declObj
+  | "SpecFn" => return (← SpecFn.fromJson declObj).map (Decl.specFn ·)
   | "ProofFn" => ProofFn.fromJson declObj
   | s => throw s!"Unexpected declaration type: {s}"
 
@@ -1008,8 +1036,9 @@ partial def Decls.fromJson? (j : Json) : VParser (String × List Decl × List De
     back from the hash maps at the end.
   -/
   let _ ← declsArr.mapM (fun j => do
-    let decl ← Decl.fromJson j
-    addDecl decl)
+    match ← Decl.fromJson j with
+    | none => return ()
+    | some decl => addDecl decl)
 
   let defs ← getDefs
   let thms ← getThms

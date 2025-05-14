@@ -45,6 +45,11 @@ def Ident.mapTail (f : String → String) : Ident → Ident
   | .str n s => .str n (f s)
   | i => i
 
+def Ident.numSegments : Ident → Nat
+  | .anonymous => 0
+  | .str n _ => Ident.numSegments n + 1
+  | _ => 0
+
 inductive Mode where
   | Spec
   | Proof

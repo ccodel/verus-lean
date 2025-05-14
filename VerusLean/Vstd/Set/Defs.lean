@@ -1,3 +1,5 @@
+import Std.Data.HashMap
+
 namespace Vstd
 
 /--
@@ -123,5 +125,29 @@ class LawfulVSetF (S : Type u → Type v) [VSetF S]
 
 open LawfulVSetF in
 attribute [simp] card_empty fold_empty
+
+open Std in
+def SetVstdTranslationNames : HashMap Lean.Name Lean.Name := HashMap.ofList <|
+  List.map (f := fun ⟨x, y⟩ => (String.toName s!"Vstd.Set.{x}", String.toName y)) <| [
+  ("contains", "VSetLikeF.mem"),
+  ("spec_has", "VSetLikeF.mem"),
+  ("empty", "VSetLikeF.empty"),
+  -- missing entry for `new`
+  ("insert", "VSetLikeF.insert"),
+  ("remove", "VSetLikeF.remove"),
+  -- no entry for singleton
+  ("choose", "VSetLikeF.choose"), -- The signatures for choose don't match
+  ("subset_of", "VSetLikeF.subset"),
+  ("spec_le", "VSetLikeF.subset"),
+  ("union", "VSetLikeF.union"),
+  ("spec_add", "VSetLikeF.union"),
+  ("intersect", "VSetLikeF.inter"),
+  ("spec_mul", "VSetLikeF.inter"),
+  ("difference", "VSetLikeF.sdiff"),
+  ("spec_sub", "VSetLikeF.sdiff"),
+  ("filter", "VSetLikeF.filter"),
+  ("disjoint", "VSetLikeF.disjoint")
+  -- missing entries for `finite`, `len`, `complement`, etc.
+]
 
 end Vstd

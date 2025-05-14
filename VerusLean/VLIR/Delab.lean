@@ -48,6 +48,8 @@ private def preludeString (nameSpace : String) := String.intercalate "\n" <|
   "",
   s!"namespace {nameSpace}",
   "",
+  "open Vstd",
+  "",
   "/- Prelude done. Place all declarations below. MAGIC COMMENT END. -/"
 ]
 
