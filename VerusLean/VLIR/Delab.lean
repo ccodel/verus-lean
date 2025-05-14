@@ -14,47 +14,24 @@ private def warningComment : String := String.intercalate "\n" <| [
   "  YOU MAY LOSE WORK IF YOU RUN THE PIPELINE AGAIN TO RE-GENERATE THIS FILE.",
   "  Read this comment carefully to avoid this situation.",
   "",
-  "  The Verus-Lean pipeline generates two sections, in this order:",
+  "  The Verus-Lean pipeline translates Verus definitions and verification",
+  "  conditions into Lean code. If a Lean file of the same name already",
+  "  exists, then the pipeline attempts to update the existing definitions",
+  "  and theorem statements while leaving the rest of the file alone.",
   "",
-  "      1. Data structures and Verus spec functions",
-  "      2. Spec theorem statements",
-  "",
-  "  These sections are clearly marked with comment blocks similar to this one.",
-  "  DO NOT EDIT SECTION (1). It gets entirely overwritten by the pipeline.",
-  "",
-  "  It is okay to edit section (2), as long as you don't change the theorem",
-  "  statements. If the corresponding Verus file changes, then the pipeline will",
-  "  update the theorem statements and leave a MAGIC comment with the old theorem",
-  "  statement, for your reference. The pipeline leaves proofs alone.",
+  "  Translated/updated theorem statements are tagged with a MAGIC comment.",
+  "  For best results, leave these comments alone, and don't change",
+  "  the theorem statement.",
+  "  (Definitions always get overwritten.)",
   "",
   "  For more information about how the pipeline works, see [THIS FILE].",
   "  ------------------------------------------------------------------------------",
   "-/",
 ]
 
-private def sectionStart (sec : String) (canEdit : Bool) : String :=
-  if canEdit then
-    s!"/- Section {sec}. MAGIC COMMENT END -/"
-  else
-    s!"/- Section {sec}. DO NOT EDIT THIS SECTION. MAGIC COMMENT END -/"
-
-private def sectionEnd (sec : String) (canEdit : Bool) : String :=
-  if canEdit then
-    s!"/- End section {sec}. MAGIC COMMENT END -/"
-  else
-    s!"/- End section {sec}. DO NOT EDIT THIS SECTION. MAGIC COMMENT END -/"
-
-private def defsSectionStr := "(1) Definitions"
-private def defsSectionStart := sectionStart defsSectionStr false
-private def defsSectionEnd := sectionEnd defsSectionStr false
-
-private def userThmsSectionStr := "(2) User theorem statements"
-private def userThmsSectionStart := sectionStart userThmsSectionStr true
-private def userThmsSectionEnd := sectionEnd userThmsSectionStr true
-
-private def specThmsSectionStr := "(2) Spec theorems"
-private def specThmsSectionStart := sectionStart specThmsSectionStr true
-private def specThmsSectionEnd := sectionEnd specThmsSectionStr true
+private def pipelineGenComment : String := String.intercalate "\n" <| [
+  "/- Auto-generated. Don't edit (proofs are okay). MAGIC COMMENT END -/",
+]
 
 private def imports : List String := [
   "VerusLean.Basic",
@@ -71,10 +48,10 @@ private def preludeString (nameSpace : String) := String.intercalate "\n" <|
   "",
   s!"namespace {nameSpace}",
   "",
+  "/- Prelude done. Place all declarations below. MAGIC COMMENT END. -/"
 ]
 
-private def postludeString (nameSpace : String) := String.intercalate "\n" <|
-  [
+private def postludeString (nameSpace : String) := String.intercalate "\n" <| [
   s!"end {nameSpace} /- namespace -/",
   "",
   "end VerusLean",
@@ -144,19 +121,14 @@ unsafe def Decl.toFormat (ns : String) (defs thms : List Decl) : IO (Except Stri
               bad Lean syntax (i.e., syntax that doesn't compile).
               However, the block above should prevent this from happening.
             -/
-            let mut fmt : Format := (preludeString ns) ++ .line ++ .line
-            for (s, e, syns) in
-              [(defsSectionStart, defsSectionEnd, specSyns),
-              (specThmsSectionStart, specThmsSectionEnd, thmSyns)] do
-
-              fmt := fmt ++ s ++ .line
+            let mut fmt : Format := (preludeString ns) ++ .line
+            for syns in [specSyns, thmSyns] do
               for syn in syns do
-                fmt := fmt ++ .line ++ (
+                fmt := fmt ++ .line ++ pipelineGenComment ++ .line ++ (
                   ← format (Formatter.categoryFormatter `command) syn
                 ) ++ .line
-              fmt := fmt ++ .line ++ e ++ .line ++ .line ++ .line
 
-            return fmt ++ (postludeString ns) ++ .line
+            return fmt ++ .line ++ (postludeString ns) ++ .line
           catch e =>
             dbg_trace s!"{← e.toMessageData.toString}"
             throw e

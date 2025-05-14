@@ -465,7 +465,6 @@ def ProofFn.toCommand (f : ProofFn) : CoreM (TSyntax `command) := do
   let premises ← makeArrows requires.toArray
   let conclusions ← makeAnds ensures.toArray
   `(command| theorem $ident $args:bracketedBinder* : $premises → ($conclusions) := by
-      $body
       auto? )
 
 def Struct.toCommand (s : Struct) : CoreM (TSyntax `command) := do

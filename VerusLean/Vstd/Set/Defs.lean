@@ -13,7 +13,8 @@ class VSetLikeF (S : Type u → Type v)
   remove : {α : Type u} → α → (S α) → (S α)
   singleton : {α : Type u} → α → S α :=
     fun a => insert a empty
-  choose : {α : Type u} → (s : S α) → (h : ∃ x, mem s x) → α
+  -- To get around `noncomputable instance` for `Shim.lean`, we enforce that `α` be inhabited.
+  choose {α : Type u} [Inhabited α] : (s : S α) → (h : ∃ x, mem s x) → α
   subset : {α : Type u} → S α → S α → Prop :=
     fun s₁ s₂ => ∀ a, mem s₁ a → mem s₂ a
   union : {α : Type u} → S α → S α → S α
@@ -58,10 +59,10 @@ class VSetF (S : Type u → Type v)
     VSetLikeF S
   where
   /-- The cardinality of the set. -/
-  card : {α : Type u} → S α → Nat
+  card : S α → Nat
   /-- Dedup-ed list. Ordering not specified. -/
   toList : {α : Type u} → S α → List α
-  fold {α : Type u} {β : Type w} (f : β → α → β) (init : β) : S α → β
+  fold {α : Type u} {β : Type u} (f : β → α → β) (init : β) : S α → β
 
 class VSetInfF (S : Type u → Type v)
   extends VSetLikeF S
@@ -76,7 +77,7 @@ class VSetInfF (S : Type u → Type v)
   isFinite : S α → Bool :=
     fun s => card s ≠ none
   toList : {α : Type u} → (s : S α) → (h_finite : isFinite s) → List α
-  fold {α : Type u} {β : Type w} (f : β → α → β) (init : β) : (s : S α) → (h_finite : isFinite s) → β
+  fold {α : Type u} {β : Type u} (f : β → α → β) (init : β) : (s : S α) → (h_finite : isFinite s) → β
 
 open VSetLikeF in
 class LawfulVSetLikeF (S : Type u → Type v) [VSetLikeF S]
@@ -88,7 +89,7 @@ class LawfulVSetLikeF (S : Type u → Type v) [VSetLikeF S]
   mem_insert_iff {a b : α} {s : S α} : b ∈ (s + a) ↔ b = a ∨ b ∈ s
   mem_remove_iff {a b : α} {s : S α} : b ∈ (s - a) ↔ b ≠ a ∧ b ∈ s
   mem_singleton_iff {a b : α} : b ∈ ({a} : S α) ↔ b = a
-  choose_mem : ∀ (s : S α) (h : ∃ x, x ∈ s), choose s h ∈ s
+  choose_mem {α : Type u} [Inhabited α] : ∀ (s : S α) (h : ∃ x, x ∈ s), choose s h ∈ s
   subset_iff {s₁ s₂ : S α} : s₁ ⊆ s₂ ↔ ∀ a, a ∈ s₁ → a ∈ s₂
   mem_union_iff  {a : α} {s₁ s₂ : S α} : a ∈ s₁ ∪ s₂ ↔ a ∈ s₁ ∨ a ∈ s₂
   mem_inter_iff  {a : α} {s₁ s₂ : S α} : a ∈ s₁ ∩ s₂ ↔ a ∈ s₁ ∧ a ∈ s₂
@@ -116,8 +117,8 @@ class LawfulVSetF (S : Type u → Type v) [VSetF S]
   card_insert : ∀ (a : α) (s : S α) [Decidable (a ∈ s)],
       card (s + a) = if a ∈ s then card s else card s + 1
   mem_toList_iff {s : S α} : ∀ (a : α), a ∈ s ↔ a ∈ toList s
-  fold_empty : ∀ {β : Type w} (f : β → α → β) (init : β), fold f init (∅ : S α) = init
-  fold_mem : ∀ {β : Type w} (f : β → α → β) [FoldCommutative f] (init : β) {s : S α} (a : α),
+  fold_empty : ∀ {β : Type u} (f : β → α → β) (init : β), fold f init (∅ : S α) = init
+  fold_mem : ∀ {β : Type u} (f : β → α → β) [FoldCommutative f] (init : β) {s : S α} (a : α),
       a ∈ s → fold f init s = fold f (f init a) (s - a)
 
 open LawfulVSetF in
