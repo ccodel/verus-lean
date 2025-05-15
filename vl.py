@@ -355,6 +355,7 @@ def copy_declarations(lines, new_lines, magic_index, new_magic_index, f):
                     # Copy over the rest of the old proof, written below the statement
                     for j in range(old_st_end_line_idx + 1, end_idx + 1):
                         f.write(lines[j])
+                    i = end_idx + 1
                 else:
                     f.write(lines[i])
                     pass
