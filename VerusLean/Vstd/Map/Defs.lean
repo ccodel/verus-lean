@@ -6,7 +6,6 @@ namespace Vstd
   Verus `Vstd` maps.
 -/
 class VMapLikeF (M : Type u → Type v → Type w)
-
   where
   empty : M α β
   keys : M α β → Set α

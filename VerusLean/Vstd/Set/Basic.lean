@@ -713,8 +713,8 @@ theorem finite_union' (S₁ S₂ : Set α) (h₁ : finite' S₁) (h₂ : finite'
 --     finite (S₁ ∪ S₂) ↔ finite S₁ ∧ finite S₂ := by
 --   sorry
 
-theorem finite_union_iff' (S₁ S₂ : Set α) :
-    finite' (S₁ ∪ S₂) ↔ finite' S₁ ∧ finite' S₂ := by
+theorem finite_union_iff' (S₁ S₂ : Set α)
+    : finite' (S₁ ∪ S₂) ↔ finite' S₁ ∧ finite' S₂ := by
   constructor
   · intro h
     rcases h with ⟨f, ub, h_inj, h_bound⟩
@@ -753,8 +753,8 @@ theorem finite_union_iff' (S₁ S₂ : Set α) :
 --     finite (S₁ ∩ S₂) := by
 --   sorry
 
-theorem finite_inter_left' (S₁ S₂ : Set α) (h : finite' S₁) :
-    finite' (S₁ ∩ S₂) := by
+theorem finite_inter_left' (S₁ S₂ : Set α) (h : finite' S₁)
+    : finite' (S₁ ∩ S₂) := by
   rcases h with ⟨f, ub, h_inj, h_bound⟩
   refine ⟨f, ub, ?inj, ?bound⟩
 
@@ -774,8 +774,8 @@ theorem finite_inter_left' (S₁ S₂ : Set α) (h : finite' S₁) :
 --     finite (S₁ ∩ S₂) := by
 --   sorry
 
-theorem finite_inter_right' (S₁ S₂ : Set α) (h : finite' S₂) :
-    finite' (S₁ ∩ S₂) := by
+theorem finite_inter_right' (S₁ S₂ : Set α) (h : finite' S₂)
+    : finite' (S₁ ∩ S₂) := by
   have : S₁ ∩ S₂ = S₂ ∩ S₁ := by
     ext x
     simp [Membership.mem, Mem, Inter.inter, inter, and_comm]
