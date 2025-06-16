@@ -4,17 +4,58 @@ namespace Vstd
 
 namespace VSetLikeF
 
-open LawfulVSetLikeF
+variable {S : Type u → Type v} [VSetLikeF S] {α β : Type u}
 
-variable {S : Type u → Type v} [VSetLikeF S] [LawfulVSetLikeF S] {α β : Type u}
+theorem add_def (s t : S α) : union s t = s ∪ t := rfl
 
-omit [LawfulVSetLikeF S] in
 theorem mem_or_not_mem (a : α) (s : S α) : a ∈ s ∨ a ∉ s := by
   by_cases h : a ∈ s
   · exact Or.inl h
   · exact Or.inr h
 
-/-! # subset -/
+section
+variable (S : Type u → Type v) (α : Type u) [DecidableEq α] [VSetF S] [LawfulVSetF S]
+instance : DecidableRel (fun (x : α) (s : S α) => x ∈ s) := by
+  rw [DecidableRel]
+  intro a s
+  exact decidable_of_iff (a ∈ VSetF.toList s) (LawfulVSetF.mem_toList_iff (s := s) a).symm
+end
+
+section
+variable (S : Type → Type) [VSetF S] [LawfulVSetF S]
+
+example (x : Nat) (s : S Nat) := if x ∈ s then 1 else 0
+
+variable {α : Type} [DecidableEq α]
+
+example : ∀ x (s : S α), x ∈ s ∨ x ∉ s := by
+  intro x s
+  apply Decidable.em
+
+open Classical
+noncomputable section
+
+example (x : Nat → Nat) (s : S (Nat → Nat)) :=
+  if x ∈ s then 0 else 1
+
+end
+
+end
+
+/-! # lawful sets -/
+open LawfulVSetLikeF
+
+variable {S : Type u → Type v} [VSetLikeF S] [LawfulVSetLikeF S] {α β : Type u}
+
+-- variable {S_decidable : Type u → Type v} [Decidable u] [VSetLikeF S] [LawfulVSetLikeF S] {α β : Type u}
+
+/-! # empty -/
+
+@[simp]
+theorem mem_empty_iff_false (a : α) : a ∈ (∅ : S α) ↔ False :=
+  Iff.intro
+    (fun h => (not_mem_empty a) h)
+    (fun h => False.elim h)
 
 @[simp]
 theorem empty_subset (s : S α) : ∅ ⊆ s := by
@@ -45,11 +86,20 @@ theorem ne_empty_iff_exists_mem {s : S α} : s ≠ ∅ ↔ ∃ x, x ∈ s := by
   · rintro ⟨x, hx⟩ rfl
     exact not_mem_empty x hx
 
+/-! # subset -/
+
 theorem eq_of_subset_of_subset {s₁ s₂ : S α} : s₁ ⊆ s₂ → s₂ ⊆ s₁ → s₁ = s₂ := by
   simp only [subset_iff]
   intro h₁ h₂
   ext x
   exact ⟨h₁ x, h₂ x⟩
+
+theorem subset_antisymm_iff {s₁ s₂ : S α} : s₁ = s₂ ↔ s₁ ⊆ s₂ ∧ s₂ ⊆ s₁ := by
+  constructor
+  · rintro rfl
+    simp [subset_iff]
+  · intro h
+    exact eq_of_subset_of_subset h.1 h.2
 
 theorem subset_trans {s₁ s₂ s₃ : S α} : s₁ ⊆ s₂ → s₂ ⊆ s₃ → s₁ ⊆ s₃ := by
   simp only [subset_iff]
@@ -61,18 +111,17 @@ theorem le_trans {s₁ s₂ s₃ : S α} : s₁ ≤ s₂ → s₂ ≤ s₃ → s
 
 /-! # union -/
 
+omit [LawfulVSetLikeF S] in
+@[simp]
+theorem union_eq_union_notation (s₁ s₂ : S α) :
+  union s₁ s₂ = s₁ ∪ s₂ := rfl
+
 @[symm]
 theorem union_comm {s₁ s₂ : S α} : s₁ ∪ s₂ = s₂ ∪ s₁ := by
   ext; simp only [mem_union_iff, or_comm]
 
 theorem union_assoc {s₁ s₂ s₃ : S α} : (s₁ ∪ s₂) ∪ s₃ = s₁ ∪ (s₂ ∪ s₃) := by
   ext; simp only [mem_union_iff, or_assoc]
-
-@[simp]
-theorem mem_empty_iff_false (a : α) : a ∈ (∅ : S α) ↔ False :=
-  Iff.intro
-    (fun h => (not_mem_empty a) h)
-    (fun h => False.elim h)
 
 @[simp]
 theorem union_empty (s : S α) : s ∪ ∅ = s := by
@@ -94,7 +143,26 @@ theorem union_of_subset {s₁ s₂ : S α} : s₁ ⊆ s₂ → s₁ ∪ s₂ = s
   simp only [subset_iff] at h
   exact h x
 
+-- Mathlib name `union_eq_right`
+theorem subset_iff_union_eq_right {s₁ s₂ : S α} : s₁ ⊆ s₂ ↔ s₁ ∪ s₂ = s₂ := by
+  constructor
+  . intro h
+    ext x
+    simp only [mem_union_iff, or_iff_right_iff_imp]
+    simp only [subset_iff] at h
+    exact h x
+  . intro h
+    rw [←h]
+    simp only [subset_iff]
+    intro x hx
+    simp [mem_union_iff, hx]
+
 /-! # inter -/
+
+omit [LawfulVSetLikeF S] in
+@[simp]
+theorem inter_eq_inter_notation (s₁ s₂ : S α) :
+  inter s₁ s₂ = (s₁ ∩ s₂) := rfl
 
 @[symm]
 theorem inter_comm (s₁ s₂ : S α) : s₁ ∩ s₂ = s₂ ∩ s₁ := by
@@ -157,6 +225,11 @@ theorem inter_union_distrib (s₁ s₂ s₃ : S α)
 
 /-! # sdiff -/
 
+omit [LawfulVSetLikeF S] in
+@[simp]
+theorem sdiff_eq_sdiff_notation (s₁ s₂ : S α) :
+  sdiff s₁ s₂ = (s₁ \ s₂) := rfl
+
 @[simp]
 theorem sdiff_subset (s₁ s₂ : S α) : (s₁ \ s₂) ⊆ s₁ := by
   simp only [subset_iff, mem_sdiff_iff, and_imp]
@@ -199,7 +272,16 @@ theorem sdiff_union_right (s₁ s₂ : S α) : (s₁ \ s₂) ∪ s₂ = s₁ ∪
       · exact Or.inl ⟨h₁, h₂⟩
     · exact Or.inr h₁
 
+-- theorem sdiff_d (s₁ s₂ : S α) : disjoint s₁ (s₂ \ s₁) := by
+--   rw [disjoint_iff]
+--   sorry
+
 /-! # insert -/
+
+omit [LawfulVSetLikeF S] in
+@[simp]
+theorem insert_eq_insert_notation (s : S α) :
+  insert a s = s + a := rfl
 
 @[simp]
 theorem insert_empty (x : α) : (∅ : S α) + x = {x} := by
@@ -208,6 +290,7 @@ theorem insert_empty (x : α) : (∅ : S α) + x = {x} := by
 instance instLawfulSingleton : LawfulSingleton α (S α) where
   insert_empty_eq := insert_empty
 
+-- Mathlib name `mem_insert`
 @[simp]
 theorem mem_insert_self (a : α) (s : S α) : a ∈ (s + a) := by
   simp only [mem_insert_iff, true_or]
@@ -242,6 +325,11 @@ theorem insert_eq_union_singleton (a : α) (s : S α) : (s + a) = s ∪ {a} := b
   ext x; simp only [mem_insert_iff, mem_union_iff, mem_singleton_iff, or_comm]
 
 /-! # remove -/
+
+omit [LawfulVSetLikeF S] in
+@[simp]
+theorem remove_eq_remove_notation (s : S α) :
+  remove a s = s - a := rfl
 
 @[simp]
 theorem remove_empty (a : α) : (∅ : S α) - a = ∅ := by
@@ -288,7 +376,7 @@ theorem remove_of_not_mem {a : α} {s : S α} (h : a ∉ s) : (s - a) = s := by
   exact absurd hs h
 
 @[simp]
-theorem remove_remove (a : α) (s : S α) : (s - a) - a = s - a := by
+theorem remove_remove_self (a : α) (s : S α) : (s - a) - a = s - a := by
   ext; simp only [mem_remove_iff, ne_eq, and_self_left]
 
 theorem remove_eq_sdiff_singleton (a : α) (s : S α) :
@@ -374,10 +462,6 @@ theorem map_empty (f : α → β) : f <$> (∅ : S α) = ∅ := by
   ext; simp only [mem_map_iff, mem_empty_iff_false, false_and, exists_false]
 
 theorem map_map (f : α → β) (g : β → γ) (s : S α)
-    : g <$> (f <$> s) = (fun x => g (f x)) <$> s :=
-  Functor.map_map f g s
-
-theorem map_map' (f : α → β) (g : β → γ) (s : S α)
     : g <$> (f <$> s) = (g ∘ f) <$> s :=
   Functor.map_map f g s
 
@@ -406,6 +490,7 @@ theorem map_ofList (f : α → β) (l : List α)
 
 end VSetLikeF /- namespace -/
 
+/-! # finite sets -/
 namespace VSetF
 
 open VSetLikeF LawfulVSetLikeF LawfulVSetF
@@ -452,345 +537,210 @@ theorem card_remove (a : α) (s : S α)
     simp only [not_mem_remove_self, ↓reduceIte, Nat.add_one_sub_one]
   · rw [remove_of_not_mem ha]
 
-theorem card_union (s₁ s₂ : S α)
-    : card (s₁ ∪ s₂) = card s₁ + card s₂ - card (s₁ ∩ s₂) := by
-  sorry
-  done
+-- Cedar does not seem to have theorems for cardinality? (`size`)
 
-theorem card_disjoint {s₁ s₂ : S α} : disjoint s₁ s₂ → card (s₁ ∪ s₂) = card s₁ + card s₂ := by
-  intro h
-  rw [disjoint_iff_inter_eq_empty] at h
-  simp only [card_union, h, card_empty, Nat.sub_zero]
+-- CZ: Previous version intends to prove `card_union` (via induction?) then use it to prove `card_disjoint`.
+-- I find it easier to prove `card_disjoint` first then use it to prove the general case `card_union`.
+
+-- Define a decidable version of sets
+variable {dS : Type u → Type v} (α : Type u) [DecidableEq α] [VSetF dS] [LawfulVSetF dS]
+
+-- instance dr : DecidableRel (fun (x : α) (s : dS α) => x ∈ s) := by infer_instance
+  -- rw [DecidableRel]
+  -- intro a s
+  -- exact decidable_of_iff (a ∈ VSetF.toList s) (LawfulVSetF.mem_toList_iff (s := s) a).symm
+
+-- instance dr' : Decidable (x : α) (s₁ : dS α) (s₂ : dS α) => (a ∈ s₁)) := by
+--   intro a s
+--   exact decidable_of_iff (a ∈ VSetF.toList s) (LawfulVSetF.mem_toList_iff (s := s) a).symm
+
+-- instance {s₁ s₂ : dS α} : Decidable (disjoint s₁ s₂) := by
+--   have h_dec : ∀ a, Decidable (¬(a ∈ s₁ ∧ a ∈ s₂)) := fun a => inferInstance
+--   have (s : dS α) : Decidable (s = ∅) := by rw [← card_eq_zero_iff]; exact inferInstance
+--   refine decidable_of_iff (s₁ ∩ s₂ = ∅) ?_
+--   simp only [disjoint_iff_inter_eq_empty, disjoint_iff]
+
+theorem card_disjoint {s₁ s₂ : dS α} (h_disj : disjoint s₁ s₂) :
+    card (s₁ ∪ s₂) = card s₁ + card s₂ := by
+  let P (k : Nat) := -- The property we are inducting on for a given cardinality k
+  ∀ (s₁_hyp : dS α) (s₂_hyp : dS α),
+    card s₂_hyp = k →
+    disjoint s₁_hyp s₂_hyp →
+    card (union s₁_hyp s₂_hyp) = card s₁_hyp + card s₂_hyp
+
+  suffices Q : ∀ k_val, P k_val by -- First, prove P holds for all natural numbers k_val
+    exact Q (card s₂) s₁ s₂ rfl h_disj -- Then apply it to the specific s₁, s₂
+
+  intro k -- Start of the proof for ∀ k, P(k). k is the current cardinality value.
+  -- We use WellFounded.induction. ih is the hypothesis for all m < k.
+  -- Might be a better practice to use `Nat.strongRecOn`
+  induction k using WellFounded.induction with
+  | h k_val ih_strong =>
+    -- Goal for this step: P(k_val)
+    -- P(k_val) is: ∀ s₁_hyp s₂_hyp, card s₂_hyp = k_val → ...
+    intro s₁_hyp s₂_hyp h_card_s2_eq_k_val h_disj_hyp_bool
+
+    -- This is the main body of the inductive step, proving P(k_val)
+    by_cases h_s2_hyp_empty : s₂_hyp = (∅ : dS α)
+    · -- If s₂_hyp is empty, then k_val = 0.
+      have : union s₁_hyp ∅ = s₁_hyp := by
+        exact union_empty s₁_hyp
+      rw [h_s2_hyp_empty, this, card_empty, Nat.add_zero]
+
+    · -- s₂_hyp is not empty
+      have h_s2_hyp_ne_empty : s₂_hyp ≠ (∅ : dS α) := h_s2_hyp_empty
+      have h_k_val_pos : 0 < k_val := by
+        apply Nat.pos_of_ne_zero
+        intro hk_val_zero
+        rw [hk_val_zero] at h_card_s2_eq_k_val
+        rw [card_eq_zero_iff (s:=s₂_hyp)] at h_card_s2_eq_k_val
+        exact h_s2_hyp_ne_empty h_card_s2_eq_k_val
+
+      let ⟨a, ha_in_s2_hyp⟩ := (ne_empty_iff_exists_mem (s := s₂_hyp)).mp h_s2_hyp_ne_empty
+
+      let s₂' := remove a s₂_hyp
+      have ha_notin_s2' : a ∉ s₂' := not_mem_remove_self a s₂_hyp
+      have h_s2_hyp_eq_s2'_insert_a : s₂_hyp = VSetLikeF.insert a s₂' :=
+        Eq.symm (insert_remove_of_mem ha_in_s2_hyp)
+
+      have h_card_s2'_eq_k_val_minus_1 : card s₂' = k_val - 1 := by
+        -- CZ: redundancy here (fixed by `remove_eq_remove_notation` with @[simp])
+        -- have : s₂' = s₂_hyp - a := by
+        --   simp only [s₂', instHSubSingleton]
+        have : card s₂' = card s₂_hyp - 1 := by
+          simp [s₂', card_remove a s₂_hyp, ha_in_s2_hyp]
+        rw [this, h_card_s2_eq_k_val]
+
+      have h_card_s2'_lt_k_val : card s₂' < k_val := by
+        have : 1 ≤ k_val := by
+          false_or_by_contra
+          rename_i h_con
+          rw [Nat.not_le, Nat.lt_one_iff] at h_con
+          rw [h_con] at h_k_val_pos
+          contradiction
+        rw [h_card_s2'_eq_k_val_minus_1]
+        exact Nat.sub_lt_self Nat.zero_lt_one this
+
+      have h_card_s2'_lt_k_val : card s₂' < k_val := by
+        simp [h_card_s2'_lt_k_val]
+
+      -- From `disjoint s₁_hyp (insert a s₂')`, deduce `a ∉ s₁_hyp` and `disjoint s₁_hyp s₂'`.
+      have h_disj_s1_hyp_s2_hyp_insert_a_true : VSetLikeF.disjoint s₁_hyp (VSetLikeF.insert a s₂') := by
+        rw [←h_s2_hyp_eq_s2'_insert_a]
+        exact h_disj_hyp_bool
+
+      have all_notin_inter_s1_hyp_insert : ∀ x, x ∉ inter s₁_hyp (VSetLikeF.insert a s₂') :=
+        (disjoint_iff (s₁ := s₁_hyp) (s₂ := VSetLikeF.insert a s₂')).mp h_disj_s1_hyp_s2_hyp_insert_a_true
+
+      have a_notin_s1_hyp : a ∉ s₁_hyp := by
+        intro contra_a_in_s1_hyp
+        -- CZ: very annoying redundancy here, but not sure why `simp [mem_inter_iff]` directly does not work
+        -- have h_inter : inter s₁_hyp (VSetLikeF.insert a s₂') = s₁_hyp ∩ (VSetLikeF.insert a s₂') := by
+        --   simp only [instInter]
+        -- have h_add : VSetLikeF.insert a s₂' = s₂' + a := by
+        --   simp only [s₂', instHAddSingleton]
+        have a_in_s1_hyp_inter_insert : a ∈ inter s₁_hyp (VSetLikeF.insert a s₂') := by
+          /- CZ: Method 1 is to use `erw` (Extended Rewrite) instead of `rw` or `simp`,
+             which performs more aggressive unfolding of defns to make patterns match.
+             Method 2 is to include explicit lemmas with @[simp], see e.g. `inter_eq_inter_notation` above -/
+          simp [mem_inter_iff, mem_insert_iff]
+          simp [contra_a_in_s1_hyp]
+
+        exact (all_notin_inter_s1_hyp_insert a) a_in_s1_hyp_inter_insert
+
+      have h_disj_s1_hyp_s2'_true : disjoint s₁_hyp s₂' := by
+        rw [disjoint_iff]
+        intro x hx_in_s1_hyp_inter_s2'
+        rw [mem_inter_iff] at hx_in_s1_hyp_inter_s2'
+        let ⟨hx_in_s1_hyp, hx_in_s2'⟩ := hx_in_s1_hyp_inter_s2'
+        have hx_in_insert_a_s2' : x ∈ VSetLikeF.insert a s₂' := mem_insert_of_mem hx_in_s2' a
+        have hx_in_s1_hyp_inter_insert_a_s2' : x ∈ inter s₁_hyp (VSetLikeF.insert a s₂') := by
+          simp [mem_inter_iff, hx_in_s1_hyp, hx_in_insert_a_s2', ←insert_eq_insert_notation]
+        exact (all_notin_inter_s1_hyp_insert x) hx_in_s1_hyp_inter_insert_a_s2'
+
+      -- Apply inductive hypothesis ih_strong for card s₂' (which is k_val - 1)
+      -- ih_strong : ∀ (m : Nat), m < k_val → P m
+      -- We need P (card s₂')
+      specialize ih_strong (card s₂') h_card_s2'_lt_k_val s₁_hyp s₂' (by rw [h_card_s2'_eq_k_val_minus_1]) h_disj_s1_hyp_s2'_true
+      -- ih_strong is now: card (union s₁_hyp s₂') = card s₁_hyp + card s₂'
+
+      -- Rewrite the goal using s₂_hyp = insert a s₂'
+      rw [h_s2_hyp_eq_s2'_insert_a]
+
+      have card_s2_hyp_val : card (VSetLikeF.insert a s₂') = card s₂' + 1 := by
+        simp [card_insert, ha_notin_s2']
+      rw [card_s2_hyp_val]
+      -- Goal: card (union s₁_hyp (insert a s₂')) = card s₁_hyp + (card s₂' + 1)
+
+      simp [union_comm (s₁ := s₁_hyp), insert_union_comm]; rw [union_comm]
+      -- LHS is card (insert a (union s₁_hyp s₂'))
+
+      have a_notin_union_s1_hyp_s2' : a ∉ union s₁_hyp s₂' := by
+        simp [mem_union_iff, a_notin_s1_hyp, ha_notin_s2']
+      simp [←union_eq_union_notation, card_insert, a_notin_union_s1_hyp_s2']
+      -- LHS is card (union s₁_hyp s₂') + 1
+
+      -- Goal: card (union s₁_hyp s₂') + 1 = card s₁_hyp + card s₂' + 1
+      rw [ih_strong]; rfl
+
+  | hwf => exact Nat.lt_wfRel.wf
+
+
+theorem card_union (s₁ s₂ : dS α)
+    : card (s₁ ∪ s₂) = card s₁ + card s₂ - card (s₁ ∩ s₂) := by
+  -- Express s₂ as the union of s₂ \ s₁ and s₁ ∩ s₂
+  have h1 : s₂ = (s₂ \ s₁) ∪ (s₁ ∩ s₂) := by
+    ext x
+    simp only [mem_union_iff, mem_sdiff_iff, mem_inter_iff]
+    constructor
+    · intro h
+      by_cases hx : x ∈ s₁
+      · exact Or.inr ⟨hx, h⟩
+      · exact Or.inl ⟨h, hx⟩
+    · intro h
+      cases h <;> simp_all
+
+  -- These two parts are disjoint
+  have h2 : disjoint (s₂ \ s₁) (s₁ ∩ s₂) := by
+    rw [disjoint_iff_inter_eq_empty]; ext x
+    simp [mem_inter_iff, mem_sdiff_iff, not_mem_empty]
+    intro h₂ h₁; simp [h₁]
+
+  -- So we can compute card s₂ by invoking the `card_disjoint` theorem
+  have h3 : card s₂ = card (s₂ \ s₁) + card (s₁ ∩ s₂) := by
+    have hd := card_disjoint α h2
+    simp [←h1] at hd; exact hd
+
+  -- Similarly, express s₁ ∪ s₂ as s₁ ∪ (s₂ \ s₁)
+  have h4 : s₁ ∪ s₂ = s₁ ∪ (s₂ \ s₁) := by
+    ext x
+    simp only [mem_union_iff, mem_sdiff_iff]
+    constructor
+    · intro h
+      by_cases hx : x ∈ s₁
+      · exact Or.inl hx
+      · simp [hx] at h
+        exact Or.inr ⟨h, hx⟩
+    · intro h
+      by_cases hx : x ∈ s₁
+      · exact Or.inl hx
+      · simp [hx] at h
+        exact Or.inr h
+
+  -- These two parts are also disjoint
+  have h5 : disjoint s₁ (s₂ \ s₁) := by
+    rw [disjoint_iff_inter_eq_empty]; ext x
+    simp [mem_inter_iff, mem_sdiff_iff, not_mem_empty]
+    intro h₁ h₂; exact h₁
+
+  -- So we can compute card (s₁ ∪ s₂)
+  have h6 : card (s₁ ∪ s₂) = card s₁ + card (s₂ \ s₁) := by
+    rw [h4, card_disjoint α h5]
+
+  -- Now combine all the equations
+  rw [h3, h6, ←Nat.add_assoc, Nat.add_sub_cancel]
+
 
 end VSetF /- namespace -/
-
-end Vstd
-
-#exit
-
--- CC: (5/8) Below is an older implementation of `Set`
-
-namespace Set
-
--- CC: Maybe phrase in terms of Surjectivity in Batteries?
--- CZ: can't find anything about `Surjective` in Batteries
--- A type is `Finite` if it is in bijective correspondence to some `Fin n`
-def finite (S : Set α) : Prop :=
-  ∃ (n : Nat) (f : Fin n → α), ∀ x, (x ∈ S ↔ ∃ i, f i = x)
-
-def surj_on (f : α → β) (S : Set α) : Prop :=
-  ∀ (a1 a2), S.contains a1 ∧ S.contains a2 ∧ a1 ≠ a2 → f a1 ≠ f a2
-
--- CZ: An alternate definition of `finite`, a direct translation of `finite` in Vstd
--- Note that this version has no bijection, so `ub` is not the cardinality
-def finite' (S : Set α) : Prop :=
-  ∃ (f : α → Nat) (ub : Nat), surj_on f S ∧ ∀ a, a ∈ S → f a < ub
-
-open Classical
-
--- CC: This is broken, due to possibly needing `DecidableEq α`.
---     Ponder this. Verus seems to really like fold.
---     But don't spend too much time here, since Verus seemed to take a long time to build it up
-/- noncomputable def fold (S : Set α) (f : α → β → α) (init : β) : β :=
-  if h : ∃ x, x ∈ S then
-    let x := S.choose h
-    fold (S.remove x) f (f x init)
-  else
-    init -/
-
--- Only meaningful if a set is finite.
-noncomputable def fold (S : Set α) (f : β → α → β) (init : β) (h_finite : finite S α) : β :=
-  let n := Exists.choose h_finite
-  let f_finite : Fin n → α := Exists.choose (Exists.choose_spec h_finite)
-  let elemsList := (List.finRange n).map f_finite
-  List.foldl f init elemsList
-
-/- -- Only meaningful if a set is finite.
-noncomputable def fold (f : α → β → β) (b : β) (S : Set α) [∀ x, Decidable (S x)] : β :=
-  if h : ∃ xs : List α, (∀ x ∈ xs, S x) ∧ xs.Nodup then
-    List.foldr f b h.choose
-  else
-    b -/
-
--- CZ: A version based on `finite'`
-noncomputable def fold' (S : Set α) (f : β → α → β) (init : β) (h_finite : finite' S α) : β :=
-  let f_to_nat : α → Nat := Exists.choose h_finite
-  let ub := Exists.choose (Exists.choose_spec h_finite)
-  let elemsList := (List.range ub).filterMap (fun i =>
-    if h : ∃ a, a ∈ S ∧ f_to_nat a = i then
-      some (Classical.choose h)
-    else
-      none)
-  List.foldl f init elemsList
-
-def map (f : α → β) (S : Set α) : Set β :=
-  fun y => ∃ x, S x ∧ f x = y
-
-@[simp]
-theorem union_compl (S : Set α) : S ∪ compl S = full := by
-  ext x
-  simp only [mem_full, iff_true]
-  apply mem_union_iff.mpr
-  exact Decidable.or_iff_not_imp_left.mpr id
-
-/-! # finite -/
-
--- CC: This proof will very much depend on your definition of `finite`,
---     so be happy with that definition first
-theorem finite_empty : finite (∅ : Set α) :=
-  ⟨0, Fin.elim0,  -- The empty function from Fin 0 to α
-   λ _ =>
-     ⟨λ h => False.elim h,  -- Empty set has no elements
-      λ ⟨i, _⟩ => Fin.elim0 i⟩  -- Fin 0 is uninhabited
-  ⟩
-
-theorem finite_empty' : finite' (∅ : Set α) :=
-  ⟨fun _ => 0, 0,
-   ⟨λ _ _ h => False.elim h.1,
-    λ _ h => False.elim h⟩
-  ⟩
-
--- CZ: I start to prove things only for `finite'`, not sure if it's any easier
-
--- theorem finite_singleton (a : α) : finite (singleton a) :=
---   by sorry
-
-theorem finite_singleton' (a : α) : finite' (singleton a) :=
-  let f := fun x => if x = a then 0 else 1
-  ⟨f, 1,
-   ⟨λ a1 a2 h => by                 -- Injectivity proof
-      simp [contains, Mem, singleton] at h
-      have hn : a1 ≠ a2 := h.2.2
-      simp [h.1, h.2.1] at hn,
-    λ x h => by                     -- Bound proof
-      by_cases he : x = a
-      . rw [he]
-        simp [f]
-      . simp [Membership.mem, Mem, singleton] at h
-        exact (he h).elim⟩
-  ⟩
-
--- Verus calls this axiom_set_insert_finite
--- theorem finite_insert_of_finite (a : α) (S : Set α) (h : finite S α) :
---     finite (insert a S α) := by
---   sorry
-
-theorem finite_insert_of_finite' (a : α) (S : Set α) (h : finite' S α) :
-    finite' (insert a S α) :=
-  match h with
-  | ⟨f, ub, h_inj, h_bound⟩ =>
-    let new_f : α → Nat := fun x => if x = a then ub else f x
-    let new_ub := ub + 1
-    ⟨new_f, new_ub,
-     ⟨fun a1 a2 h => by -- Injectivity proof
-        simp [contains, Mem, insert] at h
-        let ⟨h1, h2, hne⟩ := h
-        have h1' : a1 = a ∨ ¬ a1 = a := Classical.em (a1 = a)
-        have h2' : a2 = a ∨ ¬ a2 = a := Classical.em (a2 = a)
-        cases h1' with
-        | inl ha1 => -- a1 = a
-          cases h2 with
-          | inl ha2 => -- a2 = a
-            exact (hne (trans ha1 ha2.symm)).elim
-          | inr ha2S => -- a2 ∈ S
-            have ha2_mem : a2 ∈ S := ha2S
-            have lhs : new_f a1 = ub := by simp [ha1, new_f]
-            have a2_ne_a : a2 ≠ a := by rw [ha1] at hne; exact Ne.symm hne
-            have rhs : new_f a2 = f a2 := by simp [a2_ne_a, if_neg, new_f]
-            have rhs' : new_f a2 ≠ ub := by simp [rhs, ha2_mem, h_bound, Nat.lt_iff_le_and_ne.1]
-            simp [lhs, rhs', Ne.symm]
-        | inr ha1n => -- a1 ∈ S
-          have h1S : S a1 := by simp [ha1n] at h1; exact h1
-          have ha1_mem : a1 ∈ S := h1S
-          cases h2' with
-          | inl ha2 => -- a2 = a
-            have rhs : new_f a2 = ub := by simp [ha2, new_f]
-            have lhs : new_f a1 = f a1 := by simp [ha1n, if_neg, new_f]
-            have lhs' : new_f a1 ≠ ub := by simp [lhs, ha1_mem, h_bound, Nat.lt_iff_le_and_ne.1]
-            simp [lhs', rhs, Ne.symm]
-          | inr ha2n => -- a2 ∈ S
-            have ha2S : S a2 := by simp [ha2n] at h2; exact h2
-            have lhs : new_f a1 = f a1 := by simp [ha1n, if_neg, new_f]
-            have rhs : new_f a2 = f a2 := by simp [ha2n, if_neg, new_f]
-            rw [lhs, rhs]
-            apply h_inj
-            simp [contains, Membership.mem, Mem]
-            exact ⟨h1S, ha2S, hne⟩,
-
-      fun x h => by -- Bounding proof
-        simp [Membership.mem, Mem, insert] at h
-        have h' : x = a ∨ ¬ x = a := Classical.em (x = a)
-        cases h' with
-        | inl hxa =>
-          simp [new_f, hxa, new_ub]
-        | inr hxan =>
-          simp [new_f, hxan]
-          have hxS : S x := by simp [hxan] at h; exact h
-          apply Nat.lt_trans (h_bound x hxS α) (Nat.lt_succ_self ub)⟩
-    ⟩
-
--- Verus calls this axiom_set_remove_finite
--- theorem finite_remove_of_finite (a : α) (S : Set α) (h : finite S α) :
---     finite (remove a S α) := by
---   sorry
-
-theorem finite_remove_of_finite' (a : α) (S : Set α) (h : finite' S α) :
-    finite' (remove a S α) := by
-  rcases h with ⟨f, ub, h_inj, h_bound⟩
-  refine ⟨f, ub, ?inj, ?bound⟩
-  case inj => -- Injectivity proof
-    intro a1 a2 h
-    simp only [remove, contains, Mem] at h
-    exact h_inj a1 a2 ⟨h.1.2, h.2.1.2, h.2.2⟩
-  case bound => -- Bounding proof
-    intro x hx
-    simp only [Membership.mem, remove, contains, Mem] at hx
-    exact h_bound x hx.2
-
--- theorem finite_union (S₁ S₂ : Set α) (h₁ : finite S₁) (h₂ : finite S₂) :
---     finite (S₁ ∪ S₂) := by
---   sorry
-
-theorem finite_union' (S₁ S₂ : Set α) (h₁ : finite' S₁) (h₂ : finite' S₂) :
-    finite' (S₁ ∪ S₂) := by
-  rcases h₁ with ⟨f₁, ub₁, h_inj₁, h_bound₁⟩
-  rcases h₂ with ⟨f₂, ub₂, h_inj₂, h_bound₂⟩
-
-  let new_f : α → Nat := fun x =>
-    if S₁ x then f₁ x else ub₁ + f₂ x
-  let new_ub := ub₁ + ub₂
-  refine ⟨new_f, new_ub, ?inj, ?bound⟩
-
-  -- Injectivity proof
-  case inj =>
-    intro a1 a2 h
-    simp only [contains, Mem, union] at h
-    rcases h with ⟨h1, h2, hne⟩
-    have h1_cases : S₁ a1 ∨ ¬ S₁ a1 := Classical.em (S₁ a1)
-    have h2_cases : S₁ a2 ∨ ¬ S₁ a2 := Classical.em (S₁ a2)
-    cases h1_cases <;> cases h2_cases
-
-    -- Case 1: Both in S₁
-    case inl.inl h1_S₁ h2_S₁ =>
-      simp [new_f, h1_S₁, h2_S₁]
-      exact h_inj₁ a1 a2 ⟨h1_S₁, h2_S₁, hne⟩
-
-    -- Case 2: a1 ∈ S₁, a2 ∉ S₁
-    case inl.inr h1_S₁ h2_nS₁ =>
-      have : f₁ a1 < ub₁ := h_bound₁ a1 h1_S₁
-      have lhs : new_f a1 < ub₁ := by simp [this, h1_S₁, new_f]
-      have rhs : ub₁ ≤ new_f a2 := by simp [h2_nS₁, new_f]
-      simp [Nat.lt_iff_le_and_ne.1, Nat.lt_of_lt_of_le lhs rhs]
-
-    -- Case 3: a1 ∉ S₁, a2 ∈ S₁
-    case inr.inl h1_nS₁ h2_S₁ =>
-      have : f₁ a2 < ub₁ := h_bound₁ a2 h2_S₁
-      have lhs : new_f a2 < ub₁ := by simp [this, h2_S₁, new_f]
-      have rhs : ub₁ ≤ new_f a1 := by simp [h1_nS₁, new_f]
-      simp [Nat.lt_iff_le_and_ne.1, Nat.lt_of_lt_of_le lhs rhs, Ne.symm]
-
-    -- Case 4: Both ∉ S₁ (must be in S₂)
-    case inr.inr h1_nS₁ h2_nS₁ =>
-      have h1_S₂ : S₂ a1 := h1.resolve_left h1_nS₁
-      have h2_S₂ : S₂ a2 := h2.resolve_left h2_nS₁
-      simp [new_f, h1_nS₁, h2_nS₁]
-      exact h_inj₂ a1 a2 ⟨h1_S₂, h2_S₂, hne⟩
-
-  -- Bounding proof
-  case bound =>
-    intro x hx
-    simp [Membership.mem, Set.Mem, instUnion, union] at hx
-    cases Classical.em (S₁ x) with
-    | inl hx₁ =>
-      simp [new_f, hx₁]
-      exact Nat.lt_of_lt_of_le (h_bound₁ x hx₁) (Nat.le_add_right ub₁ ub₂)
-    | inr hnx₁ =>
-      have hx₂ : S₂ x := hx.resolve_left hnx₁
-      simp [new_f, hnx₁, new_ub]
-      exact h_bound₂ x hx₂
-
--- theorem finite_union_iff (S₁ S₂ : Set α) :
---     finite (S₁ ∪ S₂) ↔ finite S₁ ∧ finite S₂ := by
---   sorry
-
-theorem finite_union_iff' (S₁ S₂ : Set α)
-    : finite' (S₁ ∪ S₂) ↔ finite' S₁ ∧ finite' S₂ := by
-  constructor
-  · intro h
-    rcases h with ⟨f, ub, h_inj, h_bound⟩
-    constructor
-    · -- finite' S₁
-      refine ⟨f, ub, ?inj, ?bound⟩
-      case inj =>
-        intro a1 a2 h
-        simp [contains, Mem] at h
-        apply h_inj
-        simp [instUnion, union, contains, Mem]
-        simp [h]
-      case bound =>
-        intro x hx
-        simp [Membership.mem, contains, Mem] at hx
-        have hx' : (S₁ ∪ S₂) x := by simp [instUnion, union, contains, Mem, hx]
-        apply h_bound x hx'
-    · -- finite' S₂
-      refine ⟨f, ub, ?inj, ?bound⟩
-      case inj =>
-        intro a1 a2 h
-        simp [contains, Mem] at h
-        apply h_inj
-        simp [instUnion, union, contains, Mem]
-        simp [h]
-      case bound =>
-        intro x hx
-        simp [Membership.mem, contains, Mem] at hx
-        have hx' : (S₁ ∪ S₂) x := by simp [instUnion, union, contains, Mem, hx]
-        apply h_bound x hx'
-  · -- Reverse direction (←)
-    intro ⟨h₁, h₂⟩
-    exact finite_union' S₁ S₂ h₁ h₂
-
--- theorem finite_inter_left (S₁ S₂ : Set α) (h : finite S₁) :
---     finite (S₁ ∩ S₂) := by
---   sorry
-
-theorem finite_inter_left' (S₁ S₂ : Set α) (h : finite' S₁)
-    : finite' (S₁ ∩ S₂) := by
-  rcases h with ⟨f, ub, h_inj, h_bound⟩
-  refine ⟨f, ub, ?inj, ?bound⟩
-
-  -- Injectivity proof
-  case inj =>
-    intro a1 a2 h
-    simp [contains, Mem] at h
-    exact h_inj a1 a2 ⟨h.1.1, h.2.1.1, h.2.2⟩
-
-  -- Bounding proof
-  case bound =>
-    intro x hx
-    simp [Membership.mem, contains, Mem] at hx
-    exact h_bound x hx.1
-
--- theorem finite_inter_right (S₁ S₂ : Set α) (h : finite S₂) :
---     finite (S₁ ∩ S₂) := by
---   sorry
-
-theorem finite_inter_right' (S₁ S₂ : Set α) (h : finite' S₂)
-    : finite' (S₁ ∩ S₂) := by
-  have : S₁ ∩ S₂ = S₂ ∩ S₁ := by
-    ext x
-    simp [Membership.mem, Mem, Inter.inter, inter, and_comm]
-  rw [this]
-  exact finite_inter_left' S₂ S₁ h
-
--- CC: Should be a simple lemma of the above two
--- Verus calls this axiom_set_difference_finite
--- theorem finite_inter_of_finite_of_finite (S₁ S₂ : Set α)
---     (h₁ : finite S₁) (h₂ : finite S₂) :
---     finite (S₁ ∩ S₂) := by
---   sorry
-
-theorem finite_inter_of_finite_of_finite' (h₁ : finite' S₁) (_ : finite' S₂)
-    : finite' (S₁ ∩ S₂) :=
-  finite_inter_left' S₁ S₂ h₁
 
 end Vstd
