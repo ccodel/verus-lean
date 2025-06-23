@@ -3,6 +3,7 @@ import Batteries.Data.List
 
 namespace Vstd
 
+-- TODO: implement the Insert class to use {} notation for Seq, [] may be just for lists?
 /--
   Verus `Vstd` sequences. They are always finite.
 -/
@@ -15,7 +16,7 @@ class VSeqLikeF (L : Type u → Type u) -- actually `Type 0 → Type 0` would be
   ofList : {α : Type u} → List α → L α
   empty : {α : Type u} → L α := ofList []
 
-  new : {α : Type u} → (len : Nat) → (f : Nat → α) → L α -- similar to List.ofFn but not the same
+  new : {α : Type u} → (len : Nat) → (f : Int → α) → L α -- similar to List.ofFn but not the same
   length : {α : Type u} → L α → Nat := fun s => toList s |>.length
   get? : {α : Type u} → L α → Nat → Option α := fun s i => (toList s)[i]?
   get [Inhabited α] : (s : L α) → (i : Nat) → (h : i < length s) → α :=
@@ -109,8 +110,9 @@ variable {L : Type u → Type u} [VSeqLikeF L]
 
 instance instEmptyCollection : EmptyCollection (L α) := ⟨empty⟩
 instance instInhabited : Inhabited (L α) := ⟨∅⟩
--- instance instSingleton : Singleton α (L α) := ⟨singleton⟩
+instance instSingleton : Singleton α (L α) := ⟨fun a => push empty a⟩
 instance instMembership : Membership α (L α) := ⟨mem⟩
+instance instInsert : Insert α (L α) := ⟨fun a s => push s a⟩
 instance instHAdd : HAdd (L α) (L α) (L α) := ⟨add⟩
 instance instCoeList : Coe (List α) (L α) := ⟨ofList⟩
 instance instGetElem [Inhabited α] : GetElem (L α) Nat α (fun s i => i < length s) := ⟨get⟩
@@ -120,6 +122,12 @@ instance instGetElem? [Inhabited α] : GetElem? (L α) Nat α (fun s i => i < le
 
 end VSeqLikeF
 
+section
+variable {L : Type → Type} [VSeqLikeF L]
+set_option pp.notation false
+#check ({1,2,3} : L Nat)
+
+end
 -- 1. L α is isomorphic to List α, toList, ofList, empty = ofList [], append s t = ofList (List.append (toList s) (toList t)), or say, toList (append s t) = List.append (toList s) (toList t)
 -- 2. current approach
 -- when you want to show List is an instance of Seq
@@ -134,7 +142,7 @@ class LawfulVSeqLikeF (L : Type u → Type u) [VSeqLikeF L]
   ax_empty : [] = toList (empty : L α)
 
   length_empty : length (empty : L α) = 0
-  length_new {α : Type u} (len : Nat) (f : Nat → α) : length (new len f : L α) = len
+  length_new {α : Type u} (len : Nat) (f : Int → α) : length (new len f : L α) = len
   length_push {α : Type u} (s : L α) (a : α) : length (push s a) = length s + 1
   length_update {α : Type u} (s : L α) (i : Nat) (a : α) (h : i < length s) :
     length (update s i a) = length s

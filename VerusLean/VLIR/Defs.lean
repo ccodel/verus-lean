@@ -18,6 +18,7 @@ open Lean (Json ToJson FromJson)
 abbrev Ident := Lean.Name
 
 def Ident.toString : Ident → String :=
+  -- fun i => if i == Lean.Name.anonymous then "" else
   Lean.Name.toString (escape := false)
 
 instance Ident.instToString : ToString Ident :=

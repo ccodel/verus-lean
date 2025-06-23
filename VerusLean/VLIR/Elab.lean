@@ -268,16 +268,29 @@ partial def Exp.toTerm (e : Exp) : CoreM Term := do
   | .Const c => c.toTerm
   | .Var i => i.toIdent
   | .Call fn _ exps =>
-    let fnIdent ← fn.toIdent
-    let fn ← `(term| $fnIdent)
-    exps.foldlM (init := fn) (fun acc e => do
-      let t ← e.toTerm
-      -- Only include parentheses if the term is nontrivial
-      -- (i.e., not a variable or a constant)
-      if e.height = 1 then
-        `($acc:term $t:term)
-      else
-        `($acc:term ($t:term)))
+    if fn = CallFun.Fun ("Vstd.View.view".toName)
+    then match exps with
+      | [] => panic! "Vstd.View.view function called with no arguments"
+      | e :: es =>
+        let t ← e.toTerm
+        let init ← `(term| $t)
+        es.foldlM (init := init) (fun acc e => do
+          let t ← e.toTerm
+          if e.height = 1 then
+            `($acc:term $t:term)
+          else
+            `($acc:term ($t:term)))
+    else
+      let fnIdent ← fn.toIdent
+      let fn ← `(term| $fnIdent)
+      exps.foldlM (init := fn) (fun acc e => do
+        let t ← e.toTerm
+        -- Only include parentheses if the term is nontrivial
+        -- (i.e., not a variable or a constant)
+        if e.height = 1 then
+          `($acc:term $t:term)
+        else
+          `($acc:term ($t:term)))
 
   | .StructCtor _ fields =>
     -- For each field, make it a `structInstField`
@@ -327,7 +340,7 @@ partial def Exp.toTerm (e : Exp) : CoreM Term := do
     let es ← es.toArray.mapM (fun e => do
       let e ← e.toTerm
       `(term| $e:term))
-    `(#[ $es:term,* ])
+    `({ $es:term,* }) -- to avoid the reserved Lean array notation `(#[ $es:term,* ])
 
 end /- mutual -/
 

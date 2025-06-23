@@ -23,8 +23,7 @@ private def VstdStr := "Vstd"
 def combineMaps (map1 map2 : Std.HashMap Ident Ident) : Std.HashMap Ident Ident :=
   map2.fold (fun acc k v => acc.insert k v) map1
 private def TranslationNames : Std.HashMap Ident Ident :=
-  combineMaps Vstd.SetVstdTranslationNames Vstd.MapVstdTranslationNames
-  -- combineMaps (combineMaps Vstd.SeqVstdTranslationNames Vstd.SetVstdTranslationNames) Vstd.MapVstdTranslationNames
+  combineMaps Vstd.SeqVstdTranslationNames (combineMaps Vstd.SetVstdTranslationNames Vstd.MapVstdTranslationNames)
 
 /--
   The parsing monad for Verus JSONs,
