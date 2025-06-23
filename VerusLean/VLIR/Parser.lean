@@ -20,8 +20,11 @@ abbrev DtMap := Std.HashMap Ident Struct
 abbrev DeclMap := Std.HashMap Ident Decl
 
 private def VstdStr := "Vstd"
+def combineMaps (map1 map2 : Std.HashMap Ident Ident) : Std.HashMap Ident Ident :=
+  map2.fold (fun acc k v => acc.insert k v) map1
 private def TranslationNames : Std.HashMap Ident Ident :=
-  Vstd.SetVstdTranslationNames
+  combineMaps Vstd.SetVstdTranslationNames Vstd.MapVstdTranslationNames
+  -- combineMaps (combineMaps Vstd.SeqVstdTranslationNames Vstd.SetVstdTranslationNames) Vstd.MapVstdTranslationNames
 
 /--
   The parsing monad for Verus JSONs,
@@ -267,7 +270,7 @@ partial def Typ.fromJson (j : Json) : m Typ := do
   | .ok "Bool" => return .Bool
   | .ok _ => throw "unsupported primitive type"
   | .error _ =>
-    match ← j["Primitive", "Int", "ConstInt", "Datatype", "Boxed", "Decorate", "Air"] with
+    match ← j["Primitive", "Int", "ConstInt", "Datatype", "Boxed", "Decorate", "Air", "Bool", "SpecFn", "TypParam"] with
     | ("Primitive", obj) =>
       let t ← obj.getArrM
       match t[0]? with
@@ -355,6 +358,10 @@ partial def Typ.fromJson (j : Json) : m Typ := do
       let name ← obj.getStrUnderKeyM "Named"
       return .AirNamed name
 
+    | ("SpecFn", _) => return .Empty -- CZ: temp fix?
+
+    | ("TypParam", obj) => return .Empty -- ？
+
     | _ => throw "unsupported primitive type"
 
 /--
@@ -388,7 +395,18 @@ def IntRange.fromJson (j : Json) : m IntRange := do
   | .ok "Char" => return .Char
   | _ =>
     -- TODO: `U` and `I` cases
-    throw s!"Unexpected IntRange: {j}"
+    match j.getFirstVal ["U", "I"] with
+    | .error _ => throw s!"unsupported IntRange object: {j}"
+    | .ok ("U", obj) =>
+      match obj.getNat? with
+      | .ok width => return .U width
+      | .error e => throw s!"[IntRange.fromJson?]: {e}"
+    | .ok ("I", obj) =>
+      match obj.getNat? with
+      | .ok width => return .I width
+      | .error e => throw s!"[IntRange.fromJson?]: {e}"
+    | _ => throw s!"[IntRange.fromJson?]: Expected one of \{ U, I }, got {j}"
+    -- throw s!"Unexpected IntRange: {j}"
 
 def Const.fromJson (j : Json) : m Const := do
   match ← j["Bool", "Int", "StrSlice", "Char"] with
@@ -612,14 +630,19 @@ partial def Bind.fromJson (j : Json) : VParser Bind := do
     else
       throw s!"Expected at least one binder"
 
-  | ("Lambda", _) => throw "not yet implemented Bind.Lambda"
+  | ("Lambda", obj) =>
+    let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 2
+    let binders ← VarBinder.typBindersFromJson arr[0]
+    return .Lambda binders
+    -- throw "not yet implemented Bind.Lambda"
+
   | ("Choose", _) => throw "not yet implemented Bind.Choose"
 
   | s => throw s!"unexpected: {s}"
 
 partial def Exp.fromJson (j : Json) : VParser Exp := do
   -- Expect that exactly one of the enumerated options will be true
-  match ← j["Const", "Var", "VarLoc", "Call", "Ctor", "Unary", "UnaryOpr", "Binary", "If", "Bind", "ArrayLiteral"] with
+  match ← j["Const", "Var", "VarLoc", "Call", "Ctor", "Unary", "UnaryOpr", "Binary", "BinaryOpr", "If", "Bind", "ArrayLiteral"] with
   | ("Const", obj) =>
     return .Const <| ← Const.fromJson obj
 
@@ -644,7 +667,17 @@ partial def Exp.fromJson (j : Json) : VParser Exp := do
 
   | ("Ctor", obj) =>
     let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 3
-    let dt ← pathedNameFromJson arr[0] "Path"
+    dbg_trace "111 get here in the Ctor branch"
+    let mut dt : Ident := (.str .anonymous "")
+    -- let mut variant := ""
+    try
+      dt ← pathedNameFromJson arr[0] "Path"
+      -- let variant ← arr[1].getStrM
+      dbg_trace "222 get here in the Ctor branch"
+    catch e =>
+      dt := toString (← (← arr[0].getObjValM "Tuple") |>.getNatM) |>.toName
+      dbg_trace "333 get here in the Ctor branch"
+      -- throw e
     let variant ← arr[1].getStrM
 
     -- According to Verus, the order of the fields within a `Ctor` node
@@ -690,6 +723,9 @@ partial def Exp.fromJson (j : Json) : VParser Exp := do
     let data₁ ← fromJsonSpanned arr[1] Exp.fromJson
     let data₂ ← fromJsonSpanned arr[2] Exp.fromJson
     return .Binary op data₁ data₂
+
+  | ("BinaryOpr", obj) =>
+    throw "BinaryOpr not yet implemented"
 
   | ("If", obj) =>
     -- Should be an array with three expressions
@@ -781,6 +817,7 @@ partial def Stm.fromJson (j : Json) : VParser Stm := do
 
   | ("Assign", obj) =>
     -- CC TODO? Dropped type information? Parse RHS first?
+    -- dbg_trace s!"[Stm.fromJson?]: In the Assign branch"
     let lhsObj ← obj.getObjValM "lhs"
     let (lhs, lhsTy) ← Dest.fromJson <| ← lhsObj.getObjValM "dest"
     let lhsIsInit ← lhsObj.getBoolUnderKeyM "is_init"

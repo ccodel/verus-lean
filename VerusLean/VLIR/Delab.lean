@@ -37,6 +37,7 @@ private def imports : List String := [
   "VerusLean.Basic",
   "VerusLean.Tactic.ByVerus",
   "VerusLean.Vstd",
+  -- "Batteries",
 ]
 
 private def preludeString (nameSpace : String) := String.intercalate "\n" <|
@@ -78,7 +79,10 @@ unsafe def Decl.toFormat (ns : String) (defs thms : List Decl) : IO (Except Stri
   -- CC: This is *incredibly* brittle, and assumes the executable doesn't move
   -- CC: Might also need `././.lake/packages/batteries/.lake/build/lib/lean`
   -- searchPathRef.set compile_time_search_path%  -- (old version)
-  searchPathRef.set [s!"{(← findSysroot)}/lib/lean", ".lake/build/lib/lean"]
+  -- searchPathRef.set [s!"{(← findSysroot)}/lib/lean", ".lake/build/lib/lean"]
+  -- CZ: I changed the order of paths to avoid a compatibility issue on my machine
+  searchPathRef.set [".lake/build/lib/lean",
+    "././.lake/packages/batteries/.lake/build/lib/lean", s!"{(← findSysroot)}/lib/lean"]
   let res : Except Exception Format ← Lean.withImportModules
     (imports := #[{ module := `Init }, { module := `VerusLean.Basic },
                   { module := `VerusLean.Vstd }, { module := `VerusLean.Tactic.ByVerus }])

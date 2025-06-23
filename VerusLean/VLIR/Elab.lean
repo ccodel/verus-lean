@@ -381,6 +381,7 @@ partial def Stm.toTerm (stm : Stm) : CoreM (TSyntax `tactic) := do
     `(tactic| have : $e := by auto? )
 
   | .Assign lhs lhsTy rhs _ =>
+    dbg_trace s!"[Elab.lean]: In the Assign branch"
     let lhs ← lhs.toIdent
     let lhsTy ← lhsTy.toTerm
     let rhs ← rhs.toTerm

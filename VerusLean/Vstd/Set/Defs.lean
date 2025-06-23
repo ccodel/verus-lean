@@ -13,10 +13,10 @@ class VSetLikeF (S : Type u → Type v)
   mem : {α : Type u} → S α → α → Prop
   -- mem : {α : Type u} → S α → α → Bool -- if [DecidableEq α] here then Shim.lean can be Cedar's defn, but then not sure how to satisfy `instance instMembership`
   empty : {α : Type u} → S α -- why is the empty set an infinite set in Verus?
-  insert : {α : Type u} → α → S α → S α
+  insert : {α : Type u} → S α → α → S α
   remove : {α : Type u} → α → S α → S α
   singleton : {α : Type u} → α → S α :=
-    fun a => insert a empty
+    fun a => insert empty a
   -- To get around `noncomputable instance` for `Shim.lean`, we enforce that `α` be inhabited.
   -- choose {α : Type u} [Inhabited α] : (s : S α) → (h : ∃ x, mem s x) → α
   /- CZ: How about that we don't require (h : ∃ x, mem s x), and just say we
@@ -34,7 +34,7 @@ class VSetLikeF (S : Type u → Type v)
   -- filter {α : Type u} (s : S α) (pred : α → Bool) : S α
   filter : {α : Type u} → (s : S α) → (pred : α → Bool) → S α
   ofList : {α : Type u} → List α → (S α) :=
-    fun l => l.foldl (fun a s => insert s a) empty
+    fun l => l.foldl (fun a s => insert a s) empty
   isEmpty : S α → Prop :=
     fun s => s = empty
   isSingleton : {α : Type u} → S α → Prop :=
@@ -58,7 +58,7 @@ instance instEmptyCollection : EmptyCollection (S α) := ⟨empty⟩
 instance instInhabited : Inhabited (S α) := ⟨∅⟩
 instance instSingleton : Singleton α (S α) := ⟨singleton⟩
 instance instMembership : Membership α (S α) := ⟨mem⟩
-instance instInsert : Insert α (S α) := ⟨insert⟩
+instance instInsert : Insert α (S α) := ⟨fun a s => insert s a⟩
 instance instHasSubset : HasSubset (S α) := ⟨subset⟩
 instance instLE : LE (S α) := ⟨subset⟩
 instance instLT : LT (S α) := ⟨fun s₁ s₂ => s₁ ⊆ s₂ ∧ ¬(s₂ ⊆ s₁)⟩
@@ -68,7 +68,7 @@ instance instSDiff : SDiff (S α) := ⟨sdiff⟩
 instance instHAdd : HAdd (S α) (S α) (S α) := ⟨(· ∪ ·)⟩
 instance instHSub : HSub (S α) (S α) (S α) := ⟨(· \ ·)⟩
 instance instHMul : HMul (S α) (S α) (S α) := ⟨(· ∩ ·)⟩
-instance instHAddSingleton : HAdd (S α) α (S α) := ⟨fun s a => insert a s⟩
+instance instHAddSingleton : HAdd (S α) α (S α) := ⟨fun s a => insert s a⟩
 instance instHSubSingleton : HSub (S α) α (S α) := ⟨fun s a => remove a s⟩
 instance instCoeList : Coe (List α) (S α) := ⟨ofList⟩
 

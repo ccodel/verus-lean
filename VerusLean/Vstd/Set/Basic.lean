@@ -281,7 +281,7 @@ theorem sdiff_union_right (s₁ s₂ : S α) : (s₁ \ s₂) ∪ s₂ = s₁ ∪
 omit [LawfulVSetLikeF S] in
 @[simp]
 theorem insert_eq_insert_notation (s : S α) :
-  insert a s = s + a := rfl
+  insert s a = s + a := rfl
 
 @[simp]
 theorem insert_empty (x : α) : (∅ : S α) + x = {x} := by
@@ -600,7 +600,7 @@ theorem card_disjoint {s₁ s₂ : dS α} (h_disj : disjoint s₁ s₂) :
 
       let s₂' := remove a s₂_hyp
       have ha_notin_s2' : a ∉ s₂' := not_mem_remove_self a s₂_hyp
-      have h_s2_hyp_eq_s2'_insert_a : s₂_hyp = VSetLikeF.insert a s₂' :=
+      have h_s2_hyp_eq_s2'_insert_a : s₂_hyp = VSetLikeF.insert s₂' a :=
         Eq.symm (insert_remove_of_mem ha_in_s2_hyp)
 
       have h_card_s2'_eq_k_val_minus_1 : card s₂' = k_val - 1 := by
@@ -625,12 +625,12 @@ theorem card_disjoint {s₁ s₂ : dS α} (h_disj : disjoint s₁ s₂) :
         simp [h_card_s2'_lt_k_val]
 
       -- From `disjoint s₁_hyp (insert a s₂')`, deduce `a ∉ s₁_hyp` and `disjoint s₁_hyp s₂'`.
-      have h_disj_s1_hyp_s2_hyp_insert_a_true : VSetLikeF.disjoint s₁_hyp (VSetLikeF.insert a s₂') := by
+      have h_disj_s1_hyp_s2_hyp_insert_a_true : VSetLikeF.disjoint s₁_hyp (VSetLikeF.insert s₂' a) := by
         rw [←h_s2_hyp_eq_s2'_insert_a]
         exact h_disj_hyp_bool
 
-      have all_notin_inter_s1_hyp_insert : ∀ x, x ∉ inter s₁_hyp (VSetLikeF.insert a s₂') :=
-        (disjoint_iff (s₁ := s₁_hyp) (s₂ := VSetLikeF.insert a s₂')).mp h_disj_s1_hyp_s2_hyp_insert_a_true
+      have all_notin_inter_s1_hyp_insert : ∀ x, x ∉ inter s₁_hyp (VSetLikeF.insert s₂' a) :=
+        (disjoint_iff (s₁ := s₁_hyp) (s₂ := VSetLikeF.insert s₂' a)).mp h_disj_s1_hyp_s2_hyp_insert_a_true
 
       have a_notin_s1_hyp : a ∉ s₁_hyp := by
         intro contra_a_in_s1_hyp
@@ -639,7 +639,7 @@ theorem card_disjoint {s₁ s₂ : dS α} (h_disj : disjoint s₁ s₂) :
         --   simp only [instInter]
         -- have h_add : VSetLikeF.insert a s₂' = s₂' + a := by
         --   simp only [s₂', instHAddSingleton]
-        have a_in_s1_hyp_inter_insert : a ∈ inter s₁_hyp (VSetLikeF.insert a s₂') := by
+        have a_in_s1_hyp_inter_insert : a ∈ inter s₁_hyp (VSetLikeF.insert s₂' a) := by
           /- CZ: Method 1 is to use `erw` (Extended Rewrite) instead of `rw` or `simp`,
              which performs more aggressive unfolding of defns to make patterns match.
              Method 2 is to include explicit lemmas with @[simp], see e.g. `inter_eq_inter_notation` above -/
@@ -653,8 +653,8 @@ theorem card_disjoint {s₁ s₂ : dS α} (h_disj : disjoint s₁ s₂) :
         intro x hx_in_s1_hyp_inter_s2'
         rw [mem_inter_iff] at hx_in_s1_hyp_inter_s2'
         let ⟨hx_in_s1_hyp, hx_in_s2'⟩ := hx_in_s1_hyp_inter_s2'
-        have hx_in_insert_a_s2' : x ∈ VSetLikeF.insert a s₂' := mem_insert_of_mem hx_in_s2' a
-        have hx_in_s1_hyp_inter_insert_a_s2' : x ∈ inter s₁_hyp (VSetLikeF.insert a s₂') := by
+        have hx_in_insert_a_s2' : x ∈ VSetLikeF.insert s₂' a := mem_insert_of_mem hx_in_s2' a
+        have hx_in_s1_hyp_inter_insert_a_s2' : x ∈ inter s₁_hyp (VSetLikeF.insert s₂' a) := by
           simp [mem_inter_iff, hx_in_s1_hyp, hx_in_insert_a_s2', ←insert_eq_insert_notation]
         exact (all_notin_inter_s1_hyp_insert x) hx_in_s1_hyp_inter_insert_a_s2'
 
@@ -667,7 +667,7 @@ theorem card_disjoint {s₁ s₂ : dS α} (h_disj : disjoint s₁ s₂) :
       -- Rewrite the goal using s₂_hyp = insert a s₂'
       rw [h_s2_hyp_eq_s2'_insert_a]
 
-      have card_s2_hyp_val : card (VSetLikeF.insert a s₂') = card s₂' + 1 := by
+      have card_s2_hyp_val : card (VSetLikeF.insert s₂' a) = card s₂' + 1 := by
         simp [card_insert, ha_notin_s2']
       rw [card_s2_hyp_val]
       -- Goal: card (union s₁_hyp (insert a s₂')) = card s₁_hyp + (card s₂' + 1)

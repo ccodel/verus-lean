@@ -23,7 +23,7 @@ theorem map_empty : keys (∅ : M α β) = ∅ := by
   simp
 
 theorem map_insert_domain (m : M α β) (key : α) (value : β):
-  keys (insert m key value) = VSetLikeF.insert key (keys m) := by
+  keys (insert m key value) = VSetLikeF.insert (keys m) key := by
   apply LawfulVSetLikeF.ext
   intro x
   by_cases h : x = key

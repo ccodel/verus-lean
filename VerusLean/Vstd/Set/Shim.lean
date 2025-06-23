@@ -15,7 +15,7 @@ instance S : VSetLikeF Set where
   mem := fun _ _ => false -- This is totally wrong
   empty := .mk []
   -- no correspondence in Cedar
-  insert := fun a s => match s with | .mk elems => .mk (a :: elems)
+  insert := fun s a => match s with | .mk elems => .mk (a :: elems)
   -- no correspondence in Cedar
   remove := fun _ s => match s with | .mk elems => .mk (elems)  -- This is incorrect
   -- singleton := fun a => .mk [a]
@@ -60,5 +60,38 @@ instance IS : VSetInfF Set where
   fold := fun f init s h_finite => match s with
     | .mk elems => elems.foldl f init -- how to use h_finite?
 
+-- instance LS : LawfulVSetLikeF Set where
+--   ext := fun s₁ s₂ h => by
+--     cases s₁; cases s₂; simp [h]
+--   not_mem_empty := fun a => by
+--     simp [mem_iff_exists_get]
+--   mem_insert_iff := fun a b s => by
+--     cases s; simp [mem_iff_exists_get, List.mem_cons_iff]
+--   mem_remove_iff := fun a b s => by
+--     cases s; simp [mem_iff_exists_get, List.mem_cons_iff]
+--   mem_singleton_iff := fun a b => by
+--     simp [mem_iff_exists_get]
+--   choose_mem := fun s h => by
+--     cases s; cases h; simp [choose]
+--   subset_iff := fun s₁ s₂ => by
+--     cases s₁; cases s₂; simp [subset_iff, mem_iff_exists_get]
+--   mem_union_iff := fun a s₁ s₂ => by
+--     cases s₁; cases s₂; simp [mem_union_iff, mem_iff_exists_get]
+--   mem_inter_iff := fun a s₁ s₂ => by
+--     cases s₁; cases s₂; simp [mem_inter_iff, mem_iff_exists_get]
+--   mem_sdiff_iff := fun a s₁ s₂ => by
+--     cases s₁; cases s₂; simp [mem_sdiff_iff, mem_iff_exists_get]
+--   mem_symmDiff_iff := fun a s₁ s₂ => by
+--     cases s₁; cases s₂; simp [mem_symmDiff_iff, mem_iff_exists_get]
+--   disjoint_iff := fun _ _ => by
+--     simp [disjoint_iff, mem_inter_iff]
+--   mem_filter_iff := fun p s a => by
+--     cases s; simp [mem_filter_iff, mem_iff_exists_get]
+--   mem_ofList_iff := fun a l => by
+--     simp [mem_ofList_iff, mem_iff_exists_get]
+--   mem_map_iff := fun f _ _ b => by
+--     simp [mem_map_iff, mem_iff_exists_get]
+--   mem_filterMap_iff := fun f _ _ b => by
+--     simp [mem_filterMap_iff, mem_iff_exists_get]
 
 end Vstd

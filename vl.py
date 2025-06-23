@@ -68,6 +68,7 @@ def get_verus_path():
         'verus',
         'source/target-verus/release/verus',
         'verus/source/target-verus/release/verus',
+        # '../verus/source/target-verus/release/verus',
     ]
 
     verus_path = get_path_from_extensions(extensions)

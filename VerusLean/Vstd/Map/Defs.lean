@@ -35,7 +35,7 @@ class VMapLikeF (M : Type u → Type v → Type w)
   isEqualOnKey [DecidableEq α] [DecidableEq β] : (m₁ m₂ : M α β) → (k : α) → Bool
   agrees [DecidableEq α] [DecidableEq β] : (m₁ m₂ : M α β) → Bool
   size : M α β → Nat
-  submapOf {α : Type u} {β : Type v} [DecidableEq α] [DecidableEq β]: M α β → M α β → Bool
+  submapOf {α : Type u} {β : Type v} [DecidableEq α] [DecidableEq β] : M α β → M α β → Bool
   union_prefer_right [DecidableEq α] : (m₁ m₂ : M α β) → M α β
   union_prefer_left [DecidableEq α] : (m₁ m₂ : M α β) → M α β :=
     fun m₁ m₂ => union_prefer_right m₂ m₁

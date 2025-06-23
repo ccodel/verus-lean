@@ -7,7 +7,7 @@ namespace VSeqLikeF
 /-! # lawful sequences -/
 open LawfulVSeqLikeF
 
-variable {L : Type u → Type v} [VSeqLikeF L] [LawfulVSeqLikeF L]
+variable {L : Type u → Type u} [VSeqLikeF L] [LawfulVSeqLikeF L]
 
 theorem len_eq_zero_iff {α : Type u} (s : L α) : length s = 0 ↔ s = empty := by
   constructor
@@ -27,7 +27,7 @@ theorem len_pos_iff_nonempty {α} (s : L α) : length s > 0 ↔ s ≠ empty := b
     have h_s_empty := (len_eq_zero_iff s).mp h_len_zero
     exact h_ne h_s_empty
 
-theorem filter_len {α : Type u} (s : L α) (p : α → Bool) :
+theorem filter_len {α : Type u} [Inhabited α] (s : L α) (p : α → Bool) :
   length (filter s p) ≤ length s := by
   let P (n : Nat) := ∀ (s' : L α), length s' = n → length (filter s' p) ≤ n
   suffices h_all_n : ∀ (n : Nat), P n by
@@ -73,12 +73,12 @@ theorem filter_len {α : Type u} (s : L α) (p : α → Bool) :
       -- The IH gives `len (filter s' p) ≤ len s'`, and `len s' ≤ len s' + 1`.
       exact Nat.le_trans ih_applies (Nat.le_succ (length s'))
 
-theorem filter_pred {α : Type u} (s : L α) (p : α → Bool) (h : i < length (filter s p)) :
+theorem filter_pred {α : Type u} [Inhabited α] (s : L α) (p : α → Bool) (h : i < length (filter s p)) :
   p (get (filter s p) i h) := by
   -- exact filter_pred s p h
   sorry
 
-theorem filter_contains {α : Type u} (s : L α) (p : α → Bool) (i : Nat)
+theorem filter_contains {α : Type u} [Inhabited α] (s : L α) (p : α → Bool) (i : Nat)
   (h : i < length (filter s p)) (hp : p (get (filter s p) i h)) :
   get (filter s p) i h ∈ s := by
   simp only [mem_iff_exists_get]
@@ -200,15 +200,15 @@ theorem fold_right_alt {α β : Type u} (s : L α) (f : α → β → β) (b : �
 
 -- theorem multiset_has_no_duplicates
 
-theorem add_last_back {α : Type u} (s : L α):
+theorem add_last_back {α : Type u} [Inhabited α] (s : L α):
   push (dropLast s) (last s) = s := by
   sorry
 
-theorem indexing_implies_membership {α : Type u} (s : L α) (f : α → Bool)
+theorem indexing_implies_membership {α : Type u} [Inhabited α] (s : L α) (f : α → Bool)
   (h : ∀ i < length s, f (get! s i)) : ∀ x, x ∈ s → f x := by
   sorry
 
-theorem membership_implies_indexing {α : Type u} (s : L α) (f : α → Bool)
+theorem membership_implies_indexing {α : Type u} [Inhabited α] (s : L α) (f : α → Bool)
   (h : ∀ x, x ∈ s → f x) : ∀ i < length s, f (get! s i) := by
   sorry
 
@@ -216,7 +216,7 @@ theorem split_at_index {α : Type u} (s : L α) (pos : Nat) (h : pos ≤ length 
   extract s 0 pos + extract s pos (length s) = s := by
   sorry
 
-theorem element_from_slice {α : Type u} (s : L α) (new : L α) (a : Nat) (b : Nat) (pos : Nat)
+theorem element_from_slice {α : Type u} [Inhabited α] (s : L α) (new : L α) (a : Nat) (b : Nat) (pos : Nat)
   (h₁ : a ≤ b && b ≤ length s) (h₃ : new = extract s a b) (h₄ : a ≤ pos && pos < b) :
   pos - a < length new ∧ get! new (pos - a) = get! s pos := by
   sorry
