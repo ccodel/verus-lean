@@ -39,6 +39,12 @@ def Typ.pp (ty : Typ) : String :=
   | .StrSlice => "String"
   | .Array ty => s!"Array ({ty.pp})"
   | .TypParam i => i
+  | .SpecFn params ret =>
+    if params.length > 0 then
+      let params := params.map Typ.pp |> String.intercalate "→"
+      s!"{params} → {ret.pp}"
+    else
+      s!"{ret.pp}"
   | .Decorated dec ty => s!"{dec.pp}{ty.pp}"
   | .Struct name params
   | .Enum name params =>
@@ -144,6 +150,11 @@ partial def Exp.pp (e : Exp) : String :=
     let exps := exps.map Exp.pp
     let exps := String.intercalate ", " exps
     fn ++ "(" ++ exps ++ ")"
+  | .CallLambda body exps =>
+    let body := Exp.pp body
+    let exps := exps.map Exp.pp
+    let exps := String.intercalate ", " exps
+    body ++ "(" ++ exps ++ ")"
   | .StructCtor dt fields =>
     let fs := fields.map (fun ⟨i, e⟩ => s!"{i}: {Exp.pp e}")
     let fs := String.intercalate ", " fs

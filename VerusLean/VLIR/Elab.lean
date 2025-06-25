@@ -73,6 +73,15 @@ def Typ.toTerm (ty : Typ) : CoreM Term := do
   | .TypParam name =>
     let nameAsIdent ← name.toIdent
     return nameAsIdent
+  | .SpecFn params ret =>
+    let r ← ret.toTerm
+    if params.isEmpty then
+      return r
+    else
+      let params := params.attach
+      params.foldlM (init := r) (fun s ⟨ty, _⟩ => do
+        let tyTerm ← ty.toTerm
+        `($s:term → $tyTerm:term))
   | .Decorated _ ty =>
     -- TODO: Ignore the decoration for now
     ty.toTerm
@@ -291,7 +300,14 @@ partial def Exp.toTerm (e : Exp) : CoreM Term := do
           `($acc:term $t:term)
         else
           `($acc:term ($t:term)))
-
+  | .CallLambda body exps =>
+    let fn ← body.toTerm
+    exps.foldlM (init := fn) (fun acc e => do
+      let t ← e.toTerm
+      if e.height = 1 then
+        `($acc:term $t:term)
+      else
+        `($acc:term ($t:term)))
   | .StructCtor _ fields =>
     -- For each field, make it a `structInstField`
     let fields ← fields.toArray.mapM (fun ⟨field, exp⟩ => do

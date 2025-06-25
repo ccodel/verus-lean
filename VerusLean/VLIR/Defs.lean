@@ -105,6 +105,7 @@ inductive Typ where
   | StrSlice
   | Array (t : Typ)       /- Array, ignore length in Rust     -/
   | TypParam (i : String)  /- Type parameter. For example, `α` in `List α`. -/
+  | SpecFn (params : List Typ) (ret : Typ)
   | Decorated (dec : TypDecoration) (ty : Typ)
   /--
     Rust structs, corresponding to Lean `structure`s.
@@ -303,6 +304,7 @@ inductive Exp where
   | Var (x : String)
   /-- Call to spec function -/
   | Call (fn : CallFun) (typs : List Typ) (exps : List Exp)
+  | CallLambda (body : Exp) (args : List Exp)
   /-- A struct constructor -/
   | StructCtor (dt : Ident) (fields : List (String × Exp))
   /-- A constructor for the datatype with the name `dt` and the given `fields`. -/
@@ -486,7 +488,13 @@ def Typ.decEq (t₁ t₂ : Typ) : Decidable (t₁ = t₂) := by
     | _, isFalse ht₂ => simp [ht₂]; exact instDecidableFalse
   -- Array
   · exact Typ.decEq _ _
-  -- Decorated and Struct/Enum
+  -- SpecFn
+  . rename_i p₁ r₁ p₂ r₂
+    match Typ.decListEq p₁ p₂, Typ.decEq r₁ r₂ with
+    | isTrue hp, isTrue hr => simp [hp, hr]; exact instDecidableTrue
+    | isFalse hp, _ => simp [hp]; exact instDecidableFalse
+    | _, isFalse hr => simp [hr]; exact instDecidableFalse
+  -- Decorated, Struct/Enum, and SpecFn
   all_goals
   ( rename_i i₁ f₁ i₂ f₂
     by_cases hi : i₁ = i₂
@@ -538,6 +546,7 @@ def Exp.height : Exp → Nat
   | .Var _ => 1
   | .Unary _ e => 1 + e.height
   | .Call _ _ es => 1 + es.attach.foldl (init := 0) (λ acc ⟨e, _⟩ => max acc e.height)
+  | .CallLambda body args => 1 + args.attach.foldl (init := body.height) (λ acc ⟨e, _⟩ => max acc e.height)
   | .StructCtor _ _ => 2
   | .EnumCtor _ _ _ => 2
     /-let exps := fields.map Prod.snd

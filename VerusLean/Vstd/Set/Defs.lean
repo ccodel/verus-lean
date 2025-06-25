@@ -10,6 +10,7 @@ class VSetLikeF (S : Type u → Type v)
   extends
     Functor S
   where
+  map' : {α β : Type u} → (s : S α) → (f : α → β) → S β := fun s f => Functor.map f s
   mem : {α : Type u} → S α → α → Prop
   -- mem : {α : Type u} → S α → α → Bool -- if [DecidableEq α] here then Shim.lean can be Cedar's defn, but then not sure how to satisfy `instance instMembership`
   empty : {α : Type u} → S α -- why is the empty set an infinite set in Verus?
@@ -90,7 +91,7 @@ class VSetInfF (S : Type u → Type v)
   /- The set of all elements. -/
   full : S α
   /- Creates a new set from the given predicate. -/
-  new (p : α → Bool) : S α
+  new (p : α → Prop) : S α
   compl : S α → S α
   /-- The cardinality of the set. -/
   card : S α → Option Nat
@@ -173,11 +174,15 @@ def SetVstdTranslationNames : HashMap Lean.Name Lean.Name := HashMap.ofList <|
   ("choose", "VSetLikeF.choose"), -- The signatures for choose don't match
   ("mk_map", ""), -- ignored for now as Lean doesn't support build cycle, see Map/Defs.lean
   ("disjoint", "VSetLikeF.disjoint"),
+]
 
+open Std in
+def SetLibVstdTranslationNames : HashMap Lean.Name Lean.Name := HashMap.ofList <|
+  List.map (f := fun ⟨x, y⟩ => (String.toName s!"Vstd.Set_lib.{x}", String.toName y)) <| [
   /- from current set_lib.rs -/
   ("is_full", "VSetInfF.isFull"),
   ("is_empty", "VSetLikeF.isEmpty"),
-  ("map", "Functor.map"),
+  ("map", "VSetLikeF.map'"),
   ("to_seq", ""),
   ("to_sorted_seq", ""),
   ("is_singleton", "VSetLikeF.isSingleton"),

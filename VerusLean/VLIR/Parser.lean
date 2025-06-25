@@ -20,10 +20,12 @@ abbrev DtMap := Std.HashMap Ident Struct
 abbrev DeclMap := Std.HashMap Ident Decl
 
 private def VstdStr := "Vstd"
-def combineMaps (map1 map2 : Std.HashMap Ident Ident) : Std.HashMap Ident Ident :=
+def combine2Maps (map1 map2 : Std.HashMap Ident Ident) : Std.HashMap Ident Ident :=
   map2.fold (fun acc k v => acc.insert k v) map1
+def combineMaps (maps : List (Std.HashMap Ident Ident)) : Std.HashMap Ident Ident :=
+  maps.foldl (fun acc map => combine2Maps acc map) Std.HashMap.emptyWithCapacity
 private def TranslationNames : Std.HashMap Ident Ident :=
-  combineMaps Vstd.SeqVstdTranslationNames (combineMaps Vstd.SetVstdTranslationNames Vstd.MapVstdTranslationNames)
+  combineMaps [Vstd.SetVstdTranslationNames,Vstd.SetLibVstdTranslationNames, Vstd.MapVstdTranslationNames, Vstd.SeqVstdTranslationNames]
 
 /--
   The parsing monad for Verus JSONs,
@@ -357,9 +359,18 @@ partial def Typ.fromJson (j : Json) : m Typ := do
       let name ← obj.getStrUnderKeyM "Named"
       return .AirNamed name
 
-    | ("SpecFn", _) => return .Empty -- CZ: temp fix?
+    | ("SpecFn", obj) =>
+      let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 2
+      let params ←
+        match arr[0].getArr? with
+        | .ok arr => arr.mapM Typ.fromJson
+        | .error _ => throw s!"[Typ.fromJson?]: Expected an array of parameters, got {arr[0]}"
+      let ret ← Typ.fromJson arr[1]
+      return .SpecFn params.toList ret
+      -- throw s!"[Typ.fromJson?]: Unsupported SpecFn type: {obj}. Json is {j}"
+      -- return .Empty -- CZ: temp fix?
 
-    | ("TypParam", obj) => return .Empty -- ？
+    | ("TypParam", obj) => return .TypParam <| ← obj.getStrM
 
     | _ => throw "unsupported primitive type"
 
@@ -641,7 +652,7 @@ partial def Bind.fromJson (j : Json) : VParser Bind := do
 
 partial def Exp.fromJson (j : Json) : VParser Exp := do
   -- Expect that exactly one of the enumerated options will be true
-  match ← j["Const", "Var", "VarLoc", "Call", "Ctor", "Unary", "UnaryOpr", "Binary", "BinaryOpr", "If", "Bind", "ArrayLiteral"] with
+  match ← j["Const", "Var", "VarLoc", "Call", "CallLambda", "Ctor", "Unary", "UnaryOpr", "Binary", "BinaryOpr", "If", "Bind", "ArrayLiteral"] with
   | ("Const", obj) =>
     return .Const <| ← Const.fromJson obj
 
@@ -663,6 +674,13 @@ partial def Exp.fromJson (j : Json) : VParser Exp := do
     let expsJson ← arr[2].getArrM
     let exps : Array Exp ← expsJson.mapM (fromJsonSpanned · Exp.fromJson)
     return .Call callFn [] exps.toList
+
+  | ("CallLambda", obj) =>
+    let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 2
+    let body ← fromJsonSpanned arr[0] Exp.fromJson
+    let expsJson ← arr[1].getArrM
+    let exps : Array Exp ← expsJson.mapM (fromJsonSpanned · Exp.fromJson)
+    return .CallLambda body exps.toList
 
   | ("Ctor", obj) =>
     let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 3
