@@ -236,21 +236,19 @@ def mapSyntaxOriginal (fn : Name) (params : List Term) : CoreM Term := do
   params.foldlM (init := f) (fun acc t => do
     `($acc:term ($t:term)))
 
+def mapSyntaxView (_ : Name) (params : List Term) : CoreM Term := do
+  match params with
+    | [] => panic! "Vstd.View.view function called with no arguments"
+    | t :: ts =>
+      ts.foldlM (init := t) (fun acc t => `($acc:term $t:term))
+
 private def VstdStr := "Vstd"
--- def combine2Maps (map1 map2 : Std.HashMap Ident Ident) : Std.HashMap Ident Ident :=
---   map2.fold (fun acc k v => acc.insert k v) map1
--- def combineMaps (maps : List (Std.HashMap Ident Ident)) : Std.HashMap Ident Ident :=
---   maps.foldl (fun acc map => combine2Maps acc map) Std.HashMap.emptyWithCapacity
--- private def TranslationNames : Std.HashMap Ident Ident :=
---   combineMaps [Vstd.SetVstdTranslationNames, Vstd.SetLibVstdTranslationNames,
---               Vstd.MapVstdTranslationNames, Vstd.MapLibVstdTranslationNames,
---               Vstd.SeqVstdTranslationNames, Vstd.SeqLibVstdTranslationNames]
 
 -- def getVstdSyntax (fn : Name) : CoreM Term := do
 --   sorry
 
 private def VstdSyntaxTable : Std.HashMap Name (Name × (Name → List Term → CoreM Term)) :=
-  Std.HashMap.ofList <|
+  (Std.HashMap.ofList <|
   (List.map (f := fun (x, y) => (String.toName s!"Vstd.Set.{x}", (String.toName y, mapSyntaxOriginal))) <|
   [("empty", "VSetLikeF.empty"), -- or do we translate them to VSetF, by default assuming finite sets?
   ("new", "VSetInfF.new"),
@@ -273,7 +271,7 @@ private def VstdSyntaxTable : Std.HashMap Name (Name × (Name → List Term → 
   ("len", "VSetF.card"), -- assuming finiteness
   -- CZ: the signature now matches, if we don't require a hypothesis that the set is inhabited
   ("choose", "VSetLikeF.choose"), -- The signatures for choose don't match
-  ("mk_map", "VMapLikeF.fromSet"), -- ignored for now as Lean doesn't support build cycle, see Map/Defs.lean
+  ("mk_map", "VMapLikeF.fromSet"),
   ("disjoint", "VSetLikeF.disjoint"),
   ("Fold.fold", "VSetInfF.fold"),
   ])
@@ -391,7 +389,10 @@ private def VstdSyntaxTable : Std.HashMap Name (Name × (Name → List Term → 
   ("merge_sorted_with", "VSeqLikeF.merge_sorted_with"),
 
   ("seq_to_set_rec", ""),
-  ])
+  ]))
+  |>.insert (String.toName "Vstd.View.view")
+    (String.toName "Vstd.View.view", mapSyntaxView)
+
 
 mutual
 
@@ -449,19 +450,6 @@ partial def Exp.toTerm (e : Exp) : CoreM Term := do
     let fnName := match fn with | CallFun.Fun i => i
     if fnName.head = "Vstd" then
       VstdFnToTerm fnName exps
-    else
-    if fn = CallFun.Fun ("Vstd.View.view".toName)
-    then match exps with
-      | [] => panic! "Vstd.View.view function called with no arguments"
-      | e :: es =>
-        let t ← e.toTerm
-        let init ← `(term| $t)
-        es.foldlM (init := init) (fun acc e => do
-          let t ← e.toTerm
-          if e.height = 1 then
-            `($acc:term $t:term)
-          else
-            `($acc:term ($t:term)))
     else
       let fnIdent ← fn.toIdent
       let fn ← `(term| $fnIdent)
