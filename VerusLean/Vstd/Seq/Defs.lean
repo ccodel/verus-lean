@@ -40,8 +40,8 @@ class VSeqLikeF (L : Type u → Type u) -- actually `Type 0 → Type 0` would be
   first [Inhabited α] : L α → α := -- same
     fun s => (toList s).headD default
 
-  mapEntries : {α β : Type u} → (Nat → α → β) → L α → L β :=
-    fun f s => ofList ((toList s).zipIdx.map fun (x,i) => f i x)
+  mapEntries : {α β : Type u} → L α → (Int → α → β) → L β :=
+    fun s f => ofList ((toList s).zipIdx.map fun (x,i) => f i x)
   isPrefixOf [BEq α] : L α → L α → Bool :=
     fun s₁ s₂ => (toList s₁).isPrefixOf (toList s₂)
   isSuffixOf [BEq α] : L α → L α → Bool :=
@@ -209,67 +209,4 @@ class FoldCommutative (op : α → β → α) : Prop where
 class FoldCommutativeR (op : α → β → β) : Prop where
   comm : (a₁ a₂ : α) → (b : β) → op a₁ (op a₂ b) = op a₂ (op a₁ b)
 
-
-open Std in
-def SeqVstdTranslationNames : HashMap Lean.Name Lean.Name := HashMap.ofList <|
-  List.map (f := fun ⟨x, y⟩ => (String.toName s!"Vstd.Seq.{x}", String.toName y)) <| [
-  /- from seq.rs -/
-  ("empty", "VSeqLikeF.empty"),
-  ("new", "VSeqLikeF.new"),
-  ("len", "VSeqLikeF.length"),
-  ("index", "VSeqLikeF.get!"), -- direct indexing s[i] is supported via getElem
-  ("spec_index", "VSeqLikeF.get!"), -- same as index
-  ("push", "VSeqLikeF.push"),
-  ("update", "VSeqLikeF.update"),
-  ("subrange", "VSeqLikeF.extract"),
-  ("take", "VSeqLikeF.take"),
-  ("skip", "VSeqLikeF.drop"),
-  ("add", "VSeqLikeF.add"),
-  ("spec_add", "VSeqLikeF.add"), -- same as add
-  ("last", "VSeqLikeF.last"),
-  ("first", "VSeqLikeF.first"),
-
-  /- from seq_lib.rs -/
-  ("map", "VSeqLikeF.mapEntries"), -- Verus TODO: rename to `map_entries`?
-  ("map_values", "Functor.map"), -- Verus TODO: rename to `map`?
-  ("is_prefix_of", ""),
-  ("is_suffix_of", ""),
-  ("sort_by", ""),
-  ("filter", ""),
-  ("max_via", ""),
-  ("min_via", ""),
-  ("contains", "VSeqLikeF.mem"),
-  ("index_of", ""),
-  ("index_of_first", ""),
-  ("first_index_helper", ""),
-  ("index_of_last", ""),
-  ("last_index_helper", ""),
-  ("drop_last", ""),
-  ("drop_first", ""),
-  ("no_duplicates", ""),
-  ("disjoint", ""),
-  ("to_set", ""), -- ignored for now as Lean doesn't support build cycle
-  ("to_multiset", ""), -- ignored for now
-  ("insert", ""),
-  ("remove", ""),
-  ("remove_value", ""),
-  ("reverse", ""),
-  ("zip_with", ""),
-  ("fold_left", ""),
-  ("fold_left_alt", ""),
-  ("fold_right", ""),
-  ("fold_right_alt", ""),
-  ("update_subrange_with", ""),
-
-  ("unzip", "VSeqLikeF.unzip"),
-  ("flatten", "VSeqLikeF.flatten"),
-  ("flatten_alt", "VSeqLikeF.flatten_alt"),
-
-  ("max", "VSeqLikeF.max"),
-  ("min", "VSeqLikeF.min"),
-  ("sort", "VSeqLikeF.sort"),
-  ("merge_sorted_with", "VSeqLikeF.merge_sorted_with"),
-
-  ("seq_to_set_rec", ""),
-  ]
 end Vstd

@@ -42,11 +42,13 @@ instance S : VSetLikeF Set where
     | .mk elems => elems.any p
   filterMap := fun _ _ => .mk [] -- This is incorrect
   setIntRange := fun _ _ => .mk [] -- This is incorrect
+  fromSeq := fun s => match s with
+    | .mk elems => .mk elems
 
 instance FS : VSetF Set where
   card := fun s => match s with | .mk elems => elems.length
   toList := fun s => match s with | .mk elems => elems -- This is slightly incorrect
-  fold := fun f init s => match s with | .mk elems => elems.foldl f init
+  fold := fun s init f => match s with | .mk elems => elems.foldl f init
 
 instance IS : VSetInfF Set where
   full := .mk [] -- This is incorrect
@@ -57,7 +59,7 @@ instance IS : VSetInfF Set where
     | .mk elems => some elems.length
   toList := fun s h_finite => match s with
     | .mk elems => elems -- how to use h_finite?
-  fold := fun f init s h_finite => match s with
+  fold := fun s init f h_finite => match s with
     | .mk elems => elems.foldl f init -- how to use h_finite?
 
 -- instance LS : LawfulVSetLikeF Set where

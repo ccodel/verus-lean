@@ -13,6 +13,7 @@ class VMapLikeF (M : Type u → Type v → Type w)
   -- do we want an infinite map type class?
   total : (α → β) → M α β
   new : (α → Bool) → (α → β) → M α β
+  fromSet : (S_key α) → (α → β) → M α β
   -- keys : M α β → Set α
   -- values : M α β → Set β
   keys : M α β → S_key α
@@ -117,45 +118,5 @@ attribute [simp] keys_empty values_empty
 --     LawfulGetElem (M α β) α β (fun m k => memKeys m k)
 --   where
 
-open Std in
-def MapVstdTranslationNames : HashMap Lean.Name Lean.Name := HashMap.ofList <|
-  List.map (f := fun ⟨x, y⟩ => (String.toName s!"Vstd.Map.{x}", String.toName y)) <| [
-  /- from current map.rs -/
-  ("empty", "VMapLikeF.empty"),
-  -- There is a discussion about set.mk_map: https://github.com/verus-lang/verus/discussions/1666
-  ("total", "VMapLikeF.total"), -- do we want an infinite map type class?
-  ("new", "VMapLikeF.new"),
-  ("dom", "VMapLikeF.domain"),
-   /- Verus: For keys not in the domain, the result is meaningless and arbitrary.
-      But Lean will panic if key not in domain.
-      `get` and `get?` don't have the same signature as `index`. -/
-  ("index", "VMapLikeF.get!"),
-  ("spec_index", "VMapLikeF.get!"), -- same as index
-  ("insert", "VMapLikeF.insert"),
-  ("remove", "VMapLikeF.remove"),
-  ("len", "VMapLikeF.size"), -- or LawfulVMapLikeF.size?
-
-  /- from current map_lib.rs -/
-  ("is_full", "VMapLikeF.keys |> VSetInfF.full"), -- need something beyond a translation table to operate on the domain set
-  ("is_empty", "VMapLikeF.keys |> VSetLikeF.empty"), -- same
-  ("contains_key", "VMapLikeF.memKeys"),
-  ("contains_value", "VMapLikeF.memValues"),
-  ("index_opt", "VMapLikeF.get?"),
-  ("values", "VMapLikeF.values"),
-  ("contains_pair", "VMapLikeF.instMembership"), -- not sure
-  ("submap_of", "VMapLikeF.submapOf"),
-  ("spec_le", "VMapLikeF.submapOf"), -- same as submap_of
-  ("union_prefer_right", "VMapLikeF.union_prefer_right"),
-  ("remove_keys", "VMapLikeF.removeKeys"),
-  ("restrict", "VMapLikeF.restrict"),
-  ("is_equal_on_key", "VMapLikeF.isEqualOnKey"),
-  ("agrees", "VMapLikeF.agrees"),
-  ("map_entires", "VMapLikeF.mapEntries"),
-  ("map_values", "VMapLikeF.mapValues"),
-  ("is_injective", "VMapLikeF.isInjective"),
-  ("invert", ""), -- ignored for now, as it requires a different type class
-
-  -- Missing entries for `is_monotonic` and `is_monotonic_from` under `impl Map<int, int>`
-]
 
 end Vstd

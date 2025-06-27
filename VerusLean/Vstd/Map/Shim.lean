@@ -11,6 +11,8 @@ instance M : VMapLikeF Map Set Set where
   empty := .mk []
   total := fun _ => .mk [] -- incorrect
   new := fun _ _ => .mk [] -- incorrect
+  fromSet := fun s f => match s with
+    | .mk elems => .mk (elems.map (fun k => (k, f k)))
   keys := fun m => match m with | .mk elems => S.ofList (elems.map Prod.fst)
   values := fun m => match m with | .mk elems => S.ofList (elems.map Prod.snd)
   get := fun m k h => match m with

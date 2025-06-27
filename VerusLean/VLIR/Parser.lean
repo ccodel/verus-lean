@@ -2,6 +2,7 @@ import VerusLean.Json
 import VerusLean.VLIR.Defs
 import VerusLean.VLIR.Pp
 import VerusLean.Basic.Monad
+import VerusLean.Vstd.Seq.Defs
 import VerusLean.Vstd.Set.Defs
 import VerusLean.Vstd.Map.Defs
 import Lean
@@ -20,12 +21,6 @@ abbrev DtMap := Std.HashMap Ident Struct
 abbrev DeclMap := Std.HashMap Ident Decl
 
 private def VstdStr := "Vstd"
-def combine2Maps (map1 map2 : Std.HashMap Ident Ident) : Std.HashMap Ident Ident :=
-  map2.fold (fun acc k v => acc.insert k v) map1
-def combineMaps (maps : List (Std.HashMap Ident Ident)) : Std.HashMap Ident Ident :=
-  maps.foldl (fun acc map => combine2Maps acc map) Std.HashMap.emptyWithCapacity
-private def TranslationNames : Std.HashMap Ident Ident :=
-  combineMaps [Vstd.SetVstdTranslationNames,Vstd.SetLibVstdTranslationNames, Vstd.MapVstdTranslationNames, Vstd.SeqVstdTranslationNames]
 
 /--
   The parsing monad for Verus JSONs,
@@ -574,18 +569,10 @@ def CallFun.fromJson (j : Json) : m CallFun := do
   | ("Fun", obj) =>
     let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 1
     let name ← pathedNameFromJson arr[0]
-    if name.head = VstdStr then
-      let name := TranslationNames.getD name name
-      return .Fun name
-    else
-      return .Fun name
+    return .Fun name
   | ("Recursive", obj) =>
     let name ← pathedNameFromJson obj
-    if name.head = VstdStr then
-      let name := TranslationNames.getD name name
-      return .Fun name
-    else
-      return .Fun name
+    return .Fun name
   | ("InternalFun", obj) =>
     return .Fun <| String.toName <| ← obj.getStrM
   | s => throw s!"unexpected {s}"
