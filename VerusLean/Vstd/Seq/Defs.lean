@@ -3,7 +3,6 @@ import Batteries.Data.List
 
 namespace Vstd
 
--- TODO: implement the Insert class to use {} notation for Seq, [] may be just for lists?
 /--
   Verus `Vstd` sequences. They are always finite.
 -/
@@ -37,7 +36,7 @@ class VSeqLikeF (L : Type u → Type u) -- actually `Type 0 → Type 0` would be
     fun s₁ s₂ => ofList ((toList s₁) ++ (toList s₂))
   last [Inhabited α] : L α → α := -- if empty, return a default value, or requires `length s > 0`?
     fun s => (toList s).getLastD default
-  first [Inhabited α] : L α → α := -- same
+  first [Inhabited α] : L α → α := -- same as above
     fun s => (toList s).headD default
 
   mapEntries : {α β : Type u} → L α → (Int → α → β) → L β :=
@@ -122,12 +121,6 @@ instance instGetElem? [Inhabited α] : GetElem? (L α) Nat α (fun s i => i < le
 
 end VSeqLikeF
 
-section
-variable {L : Type → Type} [VSeqLikeF L]
-set_option pp.notation false
-#check ({1,2,3} : L Nat)
-
-end
 -- 1. L α is isomorphic to List α, toList, ofList, empty = ofList [], append s t = ofList (List.append (toList s) (toList t)), or say, toList (append s t) = List.append (toList s) (toList t)
 -- 2. current approach
 -- when you want to show List is an instance of Seq

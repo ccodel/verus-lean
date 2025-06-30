@@ -44,7 +44,7 @@ private def TranslationNames : Std.HashMap Ident Ident :=
   ("len", "VSetF.card"), -- assuming finiteness
   -- CZ: the signature now matches, if we don't require a hypothesis that the set is inhabited
   ("choose", "VSetLikeF.choose"), -- The signatures for choose don't match
-  ("mk_map", "VMapLikeF.fromSet"), -- ignored for now as Lean doesn't support build cycle, see Map/Defs.lean
+  ("mk_map", "VMapLikeF.fromSet"),
   ("disjoint", "VSetLikeF.disjoint"),
   ("Fold.fold", "VSetInfF.fold"),
   ])

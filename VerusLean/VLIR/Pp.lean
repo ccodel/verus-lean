@@ -161,6 +161,8 @@ partial def Exp.pp (e : Exp) : String :=
     "({ " ++ fs ++ "} : " ++ dt ++ ")"
   | .EnumCtor dt variant data =>
     s!"{dt}.{variant} {data.map (fun ⟨i, e⟩ => s!"({i}: {Exp.pp e})")}"
+  | .TupleCtor _ data =>
+    s!"{data.map (fun e => s!"{Exp.pp e}")}" -- TODO
   | .Unary op e =>
     let e := Exp.pp e
     "(" ++ UnaryOp.pp op ++ e ++ ")"

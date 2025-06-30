@@ -189,6 +189,16 @@ def InequalityOp.toTerm (i : InequalityOp) (lhs rhs : Term) : CoreM Term := do
   | .Gt => `($lhs > $rhs)
   | .Ge => `($lhs ≥ $rhs)
 
+/- CZ: temp fix to remove excess index like Nat.1 -/
+/- partial def cleanSyntax (stx : Syntax) : Syntax :=
+  match stx with
+  | .missing => stx
+  | .node info kind args => .node info kind (args.map cleanSyntax)
+  | .atom _ _ => stx
+  | .ident info rawVal val preresolved =>
+    let val' := (val.toString.splitOn ".").head!  -- maybe not correct
+    .ident info rawVal val'.toName preresolved -/
+
 def UnaryOp.toTerm (u : UnaryOp) (e : Term) : CoreM Term := do
   match u with
   | .Not => `(¬ ($e))
@@ -197,11 +207,15 @@ def UnaryOp.toTerm (u : UnaryOp) (e : Term) : CoreM Term := do
     -- TODO: Actual range-checking hypotheses
     -- For now, handle the most simple cases
     match range with
-    | .Nat => `(($e : Nat))
-    | .Int => `(($e : Int))
-    | .USize => `(($e : USize))
-    | .ISize => `(($e : ISize))
-    | .Char => `(($e : Char))
+    | .Nat =>
+      let natIdent := mkIdent `Nat
+      let t ← `(($e : $natIdent))
+      -- dbg_trace (← Lean.PrettyPrinter.formatTerm t)
+      return t
+    | .Int => let intIdent := mkIdent `Int; `(($e : $intIdent))
+    | .USize => let uSizeIdent := mkIdent `USize; `(($e : $uSizeIdent))
+    | .ISize => let iSizeIdent := mkIdent `ISize; `(($e : $iSizeIdent))
+    | .Char => let charIdent := mkIdent `Char; `(($e : $charIdent))
     | _ => `($e)
   | .Trigger => `($e) -- Ignore trigger information when constructing terms
   | .Proj _ field =>
@@ -436,6 +450,7 @@ partial def Bind.toTerm (b : Bind) (t : Term) : CoreM Term := do
         `(funBinder| ($i : $ty)))
     `(fun $(varsLambda):funBinder* => $t)
 
+-- TODO: only include parentheses if the term is nontrivial
 partial def VstdFnToTerm (fn : Ident) (exps : List Exp) : CoreM Term := do
   dbg_trace s!"[Elab.lean]: VstdFnToTerm: {fn} with {exps}"
   let (fnName, mapSyntax) := VstdSyntaxTable.get! fn
@@ -443,9 +458,12 @@ partial def VstdFnToTerm (fn : Ident) (exps : List Exp) : CoreM Term := do
   mapSyntax fnName expsTerms
 
 partial def Exp.toTerm (e : Exp) : CoreM Term := do
+  dbg_trace s!"[Elab.lean]: Exp.toTerm: {e}"
   match e with
   | .Const c => c.toTerm
-  | .Var i => i.toIdent
+  | .Var i =>
+    if i == "fuel%" then "".toIdent -- TODO: temp fix
+    else i.toIdent
   | .Call fn _ exps =>
     let fnName := match fn with | CallFun.Fun i => i
     if fnName.head = "Vstd" then
@@ -494,6 +512,20 @@ partial def Exp.toTerm (e : Exp) : CoreM Term := do
       else
         `($acc ($i:ident := $e:term)))
 
+  | .TupleCtor _ data =>
+    let es ← data.toArray.mapM (fun e => do
+      let e ← e.toTerm
+      `(term| $e:term))
+    let prodmkIdent := mkIdent `Prod.mk
+    let rec mkTuple (arr : Array Term) : CoreM Term :=
+      match arr with
+      | #[]  => `(Unit.unit)
+      | #[e] => return e
+      | es   => do
+        let stx ← mkTuple (es.eraseIdxIfInBounds 0)
+        `($prodmkIdent $(es[0]!) ($stx))
+    mkTuple es
+
   | .Unary op e =>
     let e ← e.toTerm
     op.toTerm e
@@ -501,7 +533,11 @@ partial def Exp.toTerm (e : Exp) : CoreM Term := do
   | .Binary op lhs rhs =>
     let lhs ← lhs.toTerm
     let rhs ← rhs.toTerm
-    op.toTerm lhs rhs
+    let t ← op.toTerm lhs rhs
+    -- dbg_trace s!"[Elab.lean]: Binary op: {op} with lhs: {lhs} and rhs: {rhs} to term: {t}"
+    -- let t' : Term ← `(($t:term))
+    -- dbg_trace (← Lean.PrettyPrinter.formatTerm t)
+    `(($t:term))
 
   | .If cond b₁ b₂ =>
     let cond ← cond.toTerm
@@ -614,7 +650,10 @@ private def makeTypeBinders (as : Array String) : CoreM (TSyntaxArray ``brackete
 
 private def makeArrows (exps : Array Exp) : CoreM (TSyntax `term) := do
   if h : exps.size = 0 then
-    `($(Syntax.mkCApp ``True #[]))
+    dbg_trace s!"[Elab.lean]: makeArrows base case"
+    -- let t ← `($(Syntax.mkCApp ``True #[]))
+    -- dbg_trace (← Lean.PrettyPrinter.formatTerm t)
+    `($TrueIdent)
   else
     let e ← Exp.toTerm exps[0]
     exps.foldlM (start := 1) (init := e) (fun acc e => do

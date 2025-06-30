@@ -515,6 +515,11 @@ def UnaryOp.fromJson (j : Json) : m UnaryOp := do
 def UnaryOp.oprFromJson (j : Json) : m UnaryOp := do
   match ← j["Field", "IsVariant", "Box", "Unbox"] with
   | ("Field", obj) =>
+/-     try
+      let dt ← pathedNameFromJson (pathKey := "Path") <| ← obj.getObjValM "datatype"
+    catch _ => -- see if it's a tuple
+      -- let dt ← pathedNameFromJson (pathKey := "TuplePath") <| ← obj.getObjValM "datatype"
+      sorry -/
     let dt ← pathedNameFromJson (pathKey := "Path") <| ← obj.getObjValM "datatype"
     let field ← obj.getStrUnderKeyM "field"
     return .Proj dt field
@@ -611,6 +616,7 @@ partial def Bind.fromJson (j : Json) : VParser Bind := do
       The type of the expression is hidden in the `SpannedTyped<ExpX>`,
       so we need to parse the type carefully/separately.
     -/
+    dbg_trace "get here in the Let branch"
     let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 1
     let binders ← arr.mapM (fun v => do
       let ⟨nameArr, _⟩ ← v.getArrUnderKeyWithSizeGeM "name" 1
@@ -618,11 +624,15 @@ partial def Bind.fromJson (j : Json) : VParser Bind := do
       let expObj ← v.getObjValM "a"
       -- Get the type manually
       let typ ← Typ.fromJson <| ← expObj.getObjValM "typ"
+      dbg_trace "get here in the Let branch, typ = {typ}"
       let exp ← fromJsonSpanned expObj Exp.fromJson
+      dbg_trace "get here in the Let branch, exp = {exp}"
       return (name, typ, exp))
     -- TODO: Expand `Let` to include any number. For now, assume only 1
     if hb : binders.size ≥ 1 then
       let (name, typ, exp) := binders[0]
+      if binders.size > 1 then
+        dbg_trace "TODO: expand Let to include any number of binders, got {binders}"
       return .Let name typ exp
     else
       throw s!"Expected at least one binder"
@@ -675,32 +685,41 @@ partial def Exp.fromJson (j : Json) : VParser Exp := do
     let mut dt : Ident := (.str .anonymous "")
     -- let mut variant := ""
     try
-      dt ← pathedNameFromJson arr[0] "Path"
+      dt ← pathedNameFromJson arr[0] "Path" -- if this fails, see if it is a tuple
       -- let variant ← arr[1].getStrM
       dbg_trace "222 get here in the Ctor branch"
+      let variant ← arr[1].getStrM
+
+      -- According to Verus, the order of the fields within a `Ctor` node
+      -- is unspecified, so parsing should not rely on field order.
+      let fields ← arr[2].getArrM
+
+      -- For each field, parse a field name and its expression
+      let parsedFields ← fields.mapM (fun fObj => do
+        let name ← Json.getStrUnderKeyM fObj "name"
+        -- The expression lies under two `Spanned` objects
+        let a ← Json.getObjValM fObj "a"
+        let exp ← fromJsonSpanned a Exp.fromJson
+        return (name, exp))
+
+      match ← getDecl? dt with
+      | none => throw s!"[ExpX.fromJson]: Could not find datatype {dt}"
+      | some (Decl.struct _) => return .StructCtor dt parsedFields.toList
+      | some (Decl.enum _) => return .EnumCtor dt variant parsedFields.toList
+      | _ => throw s!"[ExpX.fromJson]: Encountered an unexpected decl with name {dt}"
+
     catch e =>
-      dt := toString (← (← arr[0].getObjValM "Tuple") |>.getNatM) |>.toName
       dbg_trace "333 get here in the Ctor branch"
-      -- throw e
-    let variant ← arr[1].getStrM
-
-    -- According to Verus, the order of the fields within a `Ctor` node
-    -- is unspecified, so parsing should not rely on field order.
-    let fields ← arr[2].getArrM
-
-    -- For each field, parse a field name and its expression
-    let parsedFields ← fields.mapM (fun fObj => do
-      let name ← Json.getStrUnderKeyM fObj "name"
-      -- The expression lies under two `Spanned` objects
-      let a ← Json.getObjValM fObj "a"
-      let exp ← fromJsonSpanned a Exp.fromJson
-      return (name, exp))
-
-    match ← getDecl? dt with
-    | none => throw s!"[ExpX.fromJson]: Could not find datatype {dt}"
-    | some (Decl.struct _) => return .StructCtor dt parsedFields.toList
-    | some (Decl.enum _) => return .EnumCtor dt variant parsedFields.toList
-    | _ => throw s!"[ExpX.fromJson]: Encountered an unexpected decl with name {dt}"
+      -- dt := toString (← (← arr[0].getObjValM "Tuple") |>.getNatM) |>.toName
+      let size ← (← arr[0].getObjValM "Tuple") |>.getNatM
+      let items ← arr[2].getArrM
+      let parsedItems ← items.mapM (fun fObj => do
+        -- The expression lies under two `Spanned` objects
+        let a ← Json.getObjValM fObj "a"
+        let exp ← fromJsonSpanned a Exp.fromJson
+        return exp)
+      dbg_trace "size = {size}, parsedItems = {parsedItems}"
+      return .TupleCtor size parsedItems.toList -- TODO: handle tuples properly
 
   | ("Unary", obj) =>
     -- A unary object should be an array with an op and a data element
@@ -960,8 +979,10 @@ def ProofFn.fromJson (j : Json) : VParser ProofFn := do
 
 def typeParamsFromJson (j : Json) : m (List String) := do
   let typeParamsArr ← j.getArrUnderKeyM "typ_params"
+  dbg_trace s!"typeParamsFromJson: {typeParamsArr}"
   return Array.toList <| ← typeParamsArr.mapM (fun _ => do
     -- TODO: These are going to be tuples, which probably get serialized as an array
+    -- CZ: not sure
     let ident := "implementMePlease"
     return ident)
 
@@ -998,20 +1019,24 @@ def Struct.fromJson (j : Json) : VParser (Option Struct) := do
 
 
 def EnumField.fromJson (j : Json) : m EnumField := do
+  -- dbg_trace "entering EnumField.fromJson"
   let name ← j.getStrUnderKeyM "name"
   let fieldsObj ← j.getArrUnderKeyM "fields"
   let fields ← fieldsObj.mapM dataFieldsForVariantFromJson
 
   -- If the fields are numbers, then we have a tuple enum field
   if (fields[0]?.getD ("", .Unit)).fst = "0" then
+    -- dbg_trace s!"EnumField.fromJson: {name}, fields: {fields}"
     return EnumField.tuple name <| fields.toList.map (·.snd)
   else
     return EnumField.labeled name fields.toList
 
 
 def Enum.fromJson (j : Json) : VParser Enum := do
+  -- dbg_trace "Parsing an enum from JSON"
   let name ← pathedNameFromNameJson j (pathKey := "Path")
   let typeParams ← typeParamsFromJson j
+  -- dbg_trace s!"Enum name: {name}, typeParams: {typeParams}"
 
   /-
     The variants of an enum are stored directly in the `variants` field.

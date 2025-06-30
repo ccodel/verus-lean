@@ -309,6 +309,8 @@ inductive Exp where
   | StructCtor (dt : Ident) (fields : List (String × Exp))
   /-- A constructor for the datatype with the name `dt` and the given `fields`. -/
   | EnumCtor (dt : Ident) (variant : String) (data : List (String × Exp))
+  /- TODO -/
+  | TupleCtor (size : Nat) (data : List Exp)
   /-- Primitive unary function application. -/
   | Unary (op : UnaryOp) (arg : Exp)
   /-- Primitive binary function application. -/
@@ -549,6 +551,7 @@ def Exp.height : Exp → Nat
   | .CallLambda body args => 1 + args.attach.foldl (init := body.height) (λ acc ⟨e, _⟩ => max acc e.height)
   | .StructCtor _ _ => 2
   | .EnumCtor _ _ _ => 2
+  | .TupleCtor _ _ => 2
     /-let exps := fields.map Prod.snd
     have : sizeOf exps ≤ sizeOf fields := by
       sorry
