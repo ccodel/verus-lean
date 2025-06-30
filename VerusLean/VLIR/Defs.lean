@@ -213,6 +213,12 @@ inductive UnaryOp where
     In Verus, this is called a `Field`, and is defined under `UnaryOpr`.
   -/
   | Proj (dt : Ident) (field : String)
+  /-
+    A projection out of a tuple. For example `t.2.1`
+
+    In Verus, this is the same as `Proj`, but with `dt` being a `Tuple` instead of a `Path`
+  -/
+  | Proj' (size : Nat) (field : Nat)
   /--
     Determines whether the element matches a given variant of an enum.
 

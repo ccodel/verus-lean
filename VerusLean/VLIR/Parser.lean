@@ -362,8 +362,6 @@ partial def Typ.fromJson (j : Json) : m Typ := do
         | .error _ => throw s!"[Typ.fromJson?]: Expected an array of parameters, got {arr[0]}"
       let ret ← Typ.fromJson arr[1]
       return .SpecFn params.toList ret
-      -- throw s!"[Typ.fromJson?]: Unsupported SpecFn type: {obj}. Json is {j}"
-      -- return .Empty -- CZ: temp fix?
 
     | ("TypParam", obj) => return .TypParam <| ← obj.getStrM
 
@@ -515,14 +513,21 @@ def UnaryOp.fromJson (j : Json) : m UnaryOp := do
 def UnaryOp.oprFromJson (j : Json) : m UnaryOp := do
   match ← j["Field", "IsVariant", "Box", "Unbox"] with
   | ("Field", obj) =>
-/-     try
+    try
       let dt ← pathedNameFromJson (pathKey := "Path") <| ← obj.getObjValM "datatype"
+      let field ← obj.getStrUnderKeyM "field"
+      return .Proj dt field
     catch _ => -- see if it's a tuple
-      -- let dt ← pathedNameFromJson (pathKey := "TuplePath") <| ← obj.getObjValM "datatype"
-      sorry -/
-    let dt ← pathedNameFromJson (pathKey := "Path") <| ← obj.getObjValM "datatype"
+      try
+        let dt ← obj.getObjValM "datatype"
+        let size ← dt.getNatUnderKeyM "Tuple"
+        let field := (← obj.getStrUnderKeyM "field").toNat!
+        return .Proj' size field
+      catch _ =>
+        throw s!"[UnaryOp.oprFromJson?]: Encounter Field, neither Path nor Tuple is found, got {obj}"
+/-     let dt ← pathedNameFromJson (pathKey := "Path") <| ← obj.getObjValM "datatype"
     let field ← obj.getStrUnderKeyM "field"
-    return .Proj dt field
+    return .Proj dt field -/
   | ("IsVariant", obj) =>
     let dt ← pathedNameFromJson (pathKey := "Path") <| ← obj.getObjValM "datatype"
     let variant ← obj.getStrUnderKeyM "variant"
@@ -616,7 +621,6 @@ partial def Bind.fromJson (j : Json) : VParser Bind := do
       The type of the expression is hidden in the `SpannedTyped<ExpX>`,
       so we need to parse the type carefully/separately.
     -/
-    dbg_trace "get here in the Let branch"
     let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 1
     let binders ← arr.mapM (fun v => do
       let ⟨nameArr, _⟩ ← v.getArrUnderKeyWithSizeGeM "name" 1
@@ -624,9 +628,7 @@ partial def Bind.fromJson (j : Json) : VParser Bind := do
       let expObj ← v.getObjValM "a"
       -- Get the type manually
       let typ ← Typ.fromJson <| ← expObj.getObjValM "typ"
-      dbg_trace "get here in the Let branch, typ = {typ}"
       let exp ← fromJsonSpanned expObj Exp.fromJson
-      dbg_trace "get here in the Let branch, exp = {exp}"
       return (name, typ, exp))
     -- TODO: Expand `Let` to include any number. For now, assume only 1
     if hb : binders.size ≥ 1 then
@@ -681,13 +683,10 @@ partial def Exp.fromJson (j : Json) : VParser Exp := do
 
   | ("Ctor", obj) =>
     let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 3
-    dbg_trace "111 get here in the Ctor branch"
     let mut dt : Ident := (.str .anonymous "")
     -- let mut variant := ""
     try
       dt ← pathedNameFromJson arr[0] "Path" -- if this fails, see if it is a tuple
-      -- let variant ← arr[1].getStrM
-      dbg_trace "222 get here in the Ctor branch"
       let variant ← arr[1].getStrM
 
       -- According to Verus, the order of the fields within a `Ctor` node
@@ -709,16 +708,12 @@ partial def Exp.fromJson (j : Json) : VParser Exp := do
       | _ => throw s!"[ExpX.fromJson]: Encountered an unexpected decl with name {dt}"
 
     catch e =>
-      dbg_trace "333 get here in the Ctor branch"
-      -- dt := toString (← (← arr[0].getObjValM "Tuple") |>.getNatM) |>.toName
       let size ← (← arr[0].getObjValM "Tuple") |>.getNatM
       let items ← arr[2].getArrM
       let parsedItems ← items.mapM (fun fObj => do
-        -- The expression lies under two `Spanned` objects
         let a ← Json.getObjValM fObj "a"
         let exp ← fromJsonSpanned a Exp.fromJson
         return exp)
-      dbg_trace "size = {size}, parsedItems = {parsedItems}"
       return .TupleCtor size parsedItems.toList -- TODO: handle tuples properly
 
   | ("Unary", obj) =>
@@ -840,7 +835,6 @@ partial def Stm.fromJson (j : Json) : VParser Stm := do
 
   | ("Assign", obj) =>
     -- CC TODO? Dropped type information? Parse RHS first?
-    -- dbg_trace s!"[Stm.fromJson?]: In the Assign branch"
     let lhsObj ← obj.getObjValM "lhs"
     let (lhs, lhsTy) ← Dest.fromJson <| ← lhsObj.getObjValM "dest"
     let lhsIsInit ← lhsObj.getBoolUnderKeyM "is_init"
@@ -979,10 +973,10 @@ def ProofFn.fromJson (j : Json) : VParser ProofFn := do
 
 def typeParamsFromJson (j : Json) : m (List String) := do
   let typeParamsArr ← j.getArrUnderKeyM "typ_params"
-  dbg_trace s!"typeParamsFromJson: {typeParamsArr}"
+  -- dbg_trace s!"typeParamsFromJson: {typeParamsArr}"
   return Array.toList <| ← typeParamsArr.mapM (fun _ => do
     -- TODO: These are going to be tuples, which probably get serialized as an array
-    -- CZ: not sure
+    -- CZ: not sure about the above comment
     let ident := "implementMePlease"
     return ident)
 
@@ -1019,12 +1013,12 @@ def Struct.fromJson (j : Json) : VParser (Option Struct) := do
 
 
 def EnumField.fromJson (j : Json) : m EnumField := do
-  -- dbg_trace "entering EnumField.fromJson"
   let name ← j.getStrUnderKeyM "name"
   let fieldsObj ← j.getArrUnderKeyM "fields"
   let fields ← fieldsObj.mapM dataFieldsForVariantFromJson
 
   -- If the fields are numbers, then we have a tuple enum field
+  -- CZ: not sure about the above comment
   if (fields[0]?.getD ("", .Unit)).fst = "0" then
     -- dbg_trace s!"EnumField.fromJson: {name}, fields: {fields}"
     return EnumField.tuple name <| fields.toList.map (·.snd)
@@ -1033,10 +1027,8 @@ def EnumField.fromJson (j : Json) : m EnumField := do
 
 
 def Enum.fromJson (j : Json) : VParser Enum := do
-  -- dbg_trace "Parsing an enum from JSON"
   let name ← pathedNameFromNameJson j (pathKey := "Path")
   let typeParams ← typeParamsFromJson j
-  -- dbg_trace s!"Enum name: {name}, typeParams: {typeParams}"
 
   /-
     The variants of an enum are stored directly in the `variants` field.

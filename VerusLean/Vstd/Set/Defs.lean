@@ -6,6 +6,9 @@ namespace Vstd
 /--
   Verus `Vstd` sets.
 -/
+-- TODO: consider the following approach to make it
+-- so in the testfile, either a generic `S` or a specific `Set` can be used?
+-- instead of {S: } [], write [S: ]
 class VSetLikeF (S : Type u → Type v)
   extends
     Functor S

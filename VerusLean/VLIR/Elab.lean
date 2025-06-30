@@ -221,6 +221,20 @@ def UnaryOp.toTerm (u : UnaryOp) (e : Term) : CoreM Term := do
   | .Proj _ field =>
     let field ← field.toIdent
     `($e.$field)
+  | .Proj' size field =>
+  -- consider example:
+  -- let «tmp%%» := (a1, a2, a2)
+  -- instead of `let c : Int := «tmp%%».«1»;`
+  -- we want `let c : Int := Prod.fst (Prod.snd «tmp%%»)`
+  -- or `let c : Int := «tmp%%».2.1`
+    if field ≥ size then
+      throwError "Projection field {field} is out of bounds for a tuple of size {size}"
+    if size = 2 && field = 1 then `($e.2) -- In p := (x,y), y is p.2 instead of p.2.1
+    else
+      let rec buildProdProj (e : Term) (n : Nat) : CoreM Term := do
+        if n = 0 then `($e.1)
+        else buildProdProj (←`($e.2)) (n - 1)
+      buildProdProj e field
   | .IsVariant dt variant =>
     let dt ← dt.toIdent
     let variant ← variant.toIdent
@@ -407,7 +421,6 @@ private def VstdSyntaxTable : Std.HashMap Name (Name × (Name → List Term → 
   |>.insert (String.toName "Vstd.View.view")
     (String.toName "Vstd.View.view", mapSyntaxView)
 
-
 mutual
 
 /--
@@ -452,33 +465,32 @@ partial def Bind.toTerm (b : Bind) (t : Term) : CoreM Term := do
 
 -- TODO: only include parentheses if the term is nontrivial
 partial def VstdFnToTerm (fn : Ident) (exps : List Exp) : CoreM Term := do
-  dbg_trace s!"[Elab.lean]: VstdFnToTerm: {fn} with {exps}"
+  -- dbg_trace s!"[Elab.lean]: VstdFnToTerm: {fn} with {exps}"
   let (fnName, mapSyntax) := VstdSyntaxTable.get! fn
   let expsTerms : List Term ← exps.mapM (fun e => e.toTerm)
   mapSyntax fnName expsTerms
 
 partial def Exp.toTerm (e : Exp) : CoreM Term := do
-  dbg_trace s!"[Elab.lean]: Exp.toTerm: {e}"
   match e with
   | .Const c => c.toTerm
-  | .Var i =>
-    if i == "fuel%" then "".toIdent -- TODO: temp fix
-    else i.toIdent
+  | .Var i => i.toIdent
   | .Call fn _ exps =>
     let fnName := match fn with | CallFun.Fun i => i
     if fnName.head = "Vstd" then
       VstdFnToTerm fnName exps
     else
       let fnIdent ← fn.toIdent
-      let fn ← `(term| $fnIdent)
-      exps.foldlM (init := fn) (fun acc e => do
-        let t ← e.toTerm
-        -- Only include parentheses if the term is nontrivial
-        -- (i.e., not a variable or a constant)
-        if e.height = 1 then
-          `($acc:term $t:term)
-        else
-          `($acc:term ($t:term)))
+      let fn : Term ← `(term| $fnIdent)
+      let args : List Term ← exps.filterMapM (fun e => do
+        match e with
+        | .Var "fuel%" => return none -- Skip the fuel variable
+        | _ =>
+          let t ← e.toTerm
+          if e.height = 1 then
+            return some (← `(term| $t:term))
+          else
+            return some (← `(term| $t:term)))
+      args.foldlM (init := fn) (fun acc t => `($acc:term $t:term))
   | .CallLambda body exps =>
     let fn ← body.toTerm
     exps.foldlM (init := fn) (fun acc e => do
@@ -527,6 +539,11 @@ partial def Exp.toTerm (e : Exp) : CoreM Term := do
     mkTuple es
 
   | .Unary op e =>
+  -- consider example:
+  -- let «tmp%%» := (a1, a2, a2)
+  -- instead of `let c : Int := «tmp%%».«1»;`
+  -- we want `let c : Int := Prod.fst (Prod.snd «tmp%%»)`
+  -- or `let c : Int := «tmp%%».2.1`
     let e ← e.toTerm
     op.toTerm e
 
@@ -554,6 +571,7 @@ partial def Exp.toTerm (e : Exp) : CoreM Term := do
       let e ← e.toTerm
       `(term| $e:term))
     `({ $es:term,* }) -- to avoid the reserved Lean array notation `(#[ $es:term,* ])
+
 
 end /- mutual -/
 
@@ -607,7 +625,6 @@ partial def Stm.toTerm (stm : Stm) : CoreM (TSyntax `tactic) := do
     `(tactic| have : $e := by auto? )
 
   | .Assign lhs lhsTy rhs _ =>
-    dbg_trace s!"[Elab.lean]: In the Assign branch"
     let lhs ← lhs.toIdent
     let lhsTy ← lhsTy.toTerm
     let rhs ← rhs.toTerm
@@ -650,7 +667,6 @@ private def makeTypeBinders (as : Array String) : CoreM (TSyntaxArray ``brackete
 
 private def makeArrows (exps : Array Exp) : CoreM (TSyntax `term) := do
   if h : exps.size = 0 then
-    dbg_trace s!"[Elab.lean]: makeArrows base case"
     -- let t ← `($(Syntax.mkCApp ``True #[]))
     -- dbg_trace (← Lean.PrettyPrinter.formatTerm t)
     `($TrueIdent)
