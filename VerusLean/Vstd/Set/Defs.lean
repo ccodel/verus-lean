@@ -9,7 +9,9 @@ namespace Vstd
 -- TODO: consider the following approach to make it
 -- so in the testfile, either a generic `S` or a specific `Set` can be used?
 -- instead of {S: } [], write [S: ]
-class VSetLikeF (S : Type u → Type v)
+-- class VSetLikeF
+
+class VSetLikeF (S : Type u → Type v) -- Type u → Type u
   extends
     Functor S
   where

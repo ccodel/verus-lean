@@ -5,7 +5,7 @@ import Lean.Elab
 import VerusLean.Vstd.Seq.Defs
 import VerusLean.Vstd.Set.Defs
 import VerusLean.Vstd.Map.Defs
--- import VerusLean.VLIR.Translation
+import VerusLean.VLIR.Translation
 
 open Lean in
 def String.toIdent (s : String) : CoreM Lean.Ident :=
@@ -189,16 +189,6 @@ def InequalityOp.toTerm (i : InequalityOp) (lhs rhs : Term) : CoreM Term := do
   | .Gt => `($lhs > $rhs)
   | .Ge => `($lhs ≥ $rhs)
 
-/- CZ: temp fix to remove excess index like Nat.1 -/
-/- partial def cleanSyntax (stx : Syntax) : Syntax :=
-  match stx with
-  | .missing => stx
-  | .node info kind args => .node info kind (args.map cleanSyntax)
-  | .atom _ _ => stx
-  | .ident info rawVal val preresolved =>
-    let val' := (val.toString.splitOn ".").head!  -- maybe not correct
-    .ident info rawVal val'.toName preresolved -/
-
 def UnaryOp.toTerm (u : UnaryOp) (e : Term) : CoreM Term := do
   match u with
   | .Not => `(¬ ($e))
@@ -222,11 +212,6 @@ def UnaryOp.toTerm (u : UnaryOp) (e : Term) : CoreM Term := do
     let field ← field.toIdent
     `($e.$field)
   | .Proj' size field =>
-  -- consider example:
-  -- let «tmp%%» := (a1, a2, a2)
-  -- instead of `let c : Int := «tmp%%».«1»;`
-  -- we want `let c : Int := Prod.fst (Prod.snd «tmp%%»)`
-  -- or `let c : Int := «tmp%%».2.1`
     if field ≥ size then
       throwError "Projection field {field} is out of bounds for a tuple of size {size}"
     if size = 2 && field = 1 then `($e.2) -- In p := (x,y), y is p.2 instead of p.2.1
@@ -259,167 +244,15 @@ def BinaryOp.toTerm (b : BinaryOp) (lhs rhs : Term) : CoreM Term := do
 def CallFun.toIdent : CallFun → CoreM (Lean.Ident)
   | CallFun.Fun i => i.toIdent
 
-def mapSyntaxOriginal (fn : Name) (params : List Term) : CoreM Term := do
-  let f ← Ident.toIdent fn
-  params.foldlM (init := f) (fun acc t => do
-    `($acc:term ($t:term)))
-
-def mapSyntaxView (_ : Name) (params : List Term) : CoreM Term := do
-  match params with
-    | [] => panic! "Vstd.View.view function called with no arguments"
-    | t :: ts =>
-      ts.foldlM (init := t) (fun acc t => `($acc:term $t:term))
-
 private def VstdStr := "Vstd"
 
 -- def getVstdSyntax (fn : Name) : CoreM Term := do
 --   sorry
 
-private def VstdSyntaxTable : Std.HashMap Name (Name × (Name → List Term → CoreM Term)) :=
-  (Std.HashMap.ofList <|
-  (List.map (f := fun (x, y) => (String.toName s!"Vstd.Set.{x}", (String.toName y, mapSyntaxOriginal))) <|
-  [("empty", "VSetLikeF.empty"), -- or do we translate them to VSetF, by default assuming finite sets?
-  ("new", "VSetInfF.new"),
-  ("full", "VSetInfF.full"), -- might be an infinite set
-  ("contains", "VSetLikeF.mem"),
-  ("spec_has", "VSetLikeF.mem"),
-  ("subset_of", "VSetLikeF.subset"),
-  ("spec_le", "VSetLikeF.subset"),
-  ("insert", "VSetLikeF.insert"),
-  ("remove", "VSetLikeF.remove"),
-  ("union", "VSetLikeF.union"),
-  ("spec_add", "VSetLikeF.union"),
-  ("intersect", "VSetLikeF.inter"),
-  ("spec_mul", "VSetLikeF.inter"),
-  ("difference", "VSetLikeF.sdiff"),
-  ("spec_sub", "VSetLikeF.sdiff"),
-  ("complement", "VSetInfF.compl"), -- might become an infinite set when taking complement
-  ("filter", "VSetLikeF.filter"),
-  ("finite", "VSetInfF.isFinite"), -- should be a property of the generic VSetLikeF instead
-  ("len", "VSetF.card"), -- assuming finiteness
-  -- CZ: the signature now matches, if we don't require a hypothesis that the set is inhabited
-  ("choose", "VSetLikeF.choose"), -- The signatures for choose don't match
-  ("mk_map", "VMapLikeF.fromSet"),
-  ("disjoint", "VSetLikeF.disjoint"),
-  ("Fold.fold", "VSetInfF.fold"),
-  ])
-  ++
-  (List.map (f := fun (x, y) => (String.toName s!"Vstd.Set_lib.{x}", (String.toName y, mapSyntaxOriginal))) <|
-  [("is_full", "VSetInfF.isFull"),
-  ("is_empty", "VSetLikeF.isEmpty"),
-  ("map", "VSetLikeF.map'"),
-  ("to_seq", ""),
-  ("to_sorted_seq", ""),
-  ("is_singleton", "VSetLikeF.isSingleton"),
-  ("find_unique_minimal", "VSetLikeF.findUniqueMinimal"),
-  ("find_unique_maximal", "VSetLikeF.findUniqueMaximal"),
-  ("to_multiset", ""), -- ignored for now
-  ("all", "VSetLikeF.all"),
-  ("any", "VSetLikeF.any"),
-  ("filter_map", "VSetLikeF.filterMap"),
-  ("flatten", ""), -- ignored for now, as its type is different
-  ("set_int_range", "VSetLikeF.setIntRange"), -- if a set contains ints in [a,b), its size is bounded by b-a
-  ])
-  ++
-  (List.map (f := fun (x, y) => (String.toName s!"Vstd.Map.{x}", (String.toName y, mapSyntaxOriginal))) <|
-  [("empty", "VMapLikeF.empty"),
-  -- There is a discussion about set.mk_map: https://github.com/verus-lang/verus/discussions/1666
-  ("total", "VMapLikeF.total"), -- do we want an infinite map type class?
-  ("new", "VMapLikeF.new"),
-  ("dom", "VMapLikeF.domain"),
-   /- Verus: For keys not in the domain, the result is meaningless and arbitrary.
-      But Lean will panic if key not in domain.
-      `get` and `get?` don't have the same signature as `index`. -/
-  ("index", "VMapLikeF.get!"),
-  ("spec_index", "VMapLikeF.get!"), -- same as index
-  ("insert", "VMapLikeF.insert"),
-  ("remove", "VMapLikeF.remove"),
-  ("len", "VMapLikeF.size"), -- or LawfulVMapLikeF.size?
-  ])
-  ++
-  (List.map (f := fun (x, y) => (String.toName s!"Vstd.Map_lib.{x}", (String.toName y, mapSyntaxOriginal))) <|
-  [("is_full", "VMapLikeF.keys |> VSetInfF.full"), -- need something beyond a translation table to operate on the domain set
-  ("is_empty", "VMapLikeF.keys |> VSetLikeF.empty"), -- same
-  ("contains_key", "VMapLikeF.memKeys"),
-  ("contains_value", "VMapLikeF.memValues"),
-  ("index_opt", "VMapLikeF.get?"),
-  ("values", "VMapLikeF.values"),
-  ("contains_pair", "VMapLikeF.instMembership"), -- not sure
-  ("submap_of", "VMapLikeF.submapOf"),
-  ("spec_le", "VMapLikeF.submapOf"), -- same as submap_of
-  ("union_prefer_right", "VMapLikeF.union_prefer_right"),
-  ("remove_keys", "VMapLikeF.removeKeys"),
-  ("restrict", "VMapLikeF.restrict"),
-  ("is_equal_on_key", "VMapLikeF.isEqualOnKey"),
-  ("agrees", "VMapLikeF.agrees"),
-  ("map_entires", "VMapLikeF.mapEntries"),
-  ("map_values", "VMapLikeF.mapValues"),
-  ("is_injective", "VMapLikeF.isInjective"),
-  ("invert", "")
-  ])
-  ++
-  (List.map (f := fun (x, y) => (String.toName s!"Vstd.Seq.{x}", (String.toName y, mapSyntaxOriginal))) <|
-  [("empty", "VSeqLikeF.empty"),
-  ("new", "VSeqLikeF.new"),
-  ("len", "VSeqLikeF.length"),
-  ("index", "VSeqLikeF.get!"), -- direct indexing s[i] is supported via getElem
-  ("spec_index", "VSeqLikeF.get!"), -- same as index
-  ("push", "VSeqLikeF.push"),
-  ("update", "VSeqLikeF.update"),
-  ("subrange", "VSeqLikeF.extract"),
-  ("take", "VSeqLikeF.take"),
-  ("skip", "VSeqLikeF.drop"),
-  ("add", "VSeqLikeF.add"),
-  ("spec_add", "VSeqLikeF.add"), -- same as add
-  ("last", "VSeqLikeF.last"),
-  ("first", "VSeqLikeF.first"),
-  ])
-  ++
-  (List.map (f := fun (x, y) => (String.toName s!"Vstd.Seq_lib.{x}", (String.toName y, mapSyntaxOriginal))) <|
-  [("map", "VSeqLikeF.mapEntries"), -- Verus TODO: rename to `map_entries`?
-  ("map_values", "Functor.map"), -- Verus TODO: rename to `map`?
-  ("is_prefix_of", "VSeqLikeF.isPrefixOf"),
-  ("is_suffix_of", "VSeqLikeF.isSuffixOf"),
-  ("sort_by", "VSeqLikeF.sortBy"),
-  ("filter", "VSeqLikeF.filter"),
-  ("max_via", "VSeqLikeF.maxVia"),
-  ("min_via", "VSeqLikeF.minVia"),
-  ("contains", "VSeqLikeF.mem"),
-  ("index_of", "VSeqLikeF.indexOf"),
-  ("index_of_first", "VSeqLikeF.indexOfFirst"),
-  ("first_index_helper", ""),
-  ("index_of_last", "VSeqLikeF.indexOfLast"),
-  ("last_index_helper", ""),
-  ("drop_last", "VSeqLikeF.dropLast"),
-  ("drop_first", "VSeqLikeF.dropFirst"),
-  ("no_duplicates", "VSeqLikeF.noDuplicates"),
-  ("disjoint", "VSeqLikeF.disjoint"),
-  ("to_set", "VSetLikeF.fromSeq"),
-  ("to_multiset", ""), -- ignored for now
-  ("insert", "VSetLikeF.insert"),
-  ("remove", "VSetLikeF.remove"),
-  ("remove_value", "VSetLikeF.removeValue"),
-  ("reverse", "VSetLikeF.reverse"),
-  ("zip_with", "VSetLikeF.zipWith"),
-  ("fold_left", "VSetLikeF.foldLeft"),
-  ("fold_left_alt", "VSetLikeF.foldLeftAlt"),
-  ("fold_right", "VSetLikeF.foldRight"),
-  ("fold_right_alt", "VSetLikeF.foldRightAlt"),
-  ("update_subrange_with", "VSetLikeF.updateSubrangeWith"),
-
-  ("unzip", "VSeqLikeF.unzip"),
-  ("flatten", "VSeqLikeF.flatten"),
-  ("flatten_alt", "VSeqLikeF.flatten_alt"),
-
-  ("max", "VSeqLikeF.max"),
-  ("min", "VSeqLikeF.min"),
-  ("sort", "VSeqLikeF.sort"),
-  ("merge_sorted_with", "VSeqLikeF.merge_sorted_with"),
-
-  ("seq_to_set_rec", ""),
-  ]))
-  |>.insert (String.toName "Vstd.View.view")
-    (String.toName "Vstd.View.view", mapSyntaxView)
+private def SeqVstdTranslationNames : Std.HashMap Lean.Name Lean.Name := Std.HashMap.ofList <|
+  List.map (f := fun ⟨x, y⟩ => (String.toName s!"Vstd.Set_lib.{x}", String.toName y)) <| [
+  ("is_full", "VSetInfF.isFull"),
+  ]
 
 mutual
 
@@ -468,7 +301,7 @@ partial def VstdFnToTerm (fn : Ident) (exps : List Exp) : CoreM Term := do
   -- dbg_trace s!"[Elab.lean]: VstdFnToTerm: {fn} with {exps}"
   let (fnName, mapSyntax) := VstdSyntaxTable.get! fn
   let expsTerms : List Term ← exps.mapM (fun e => e.toTerm)
-  mapSyntax fnName expsTerms
+  mapSyntax (← Ident.toIdent fnName) expsTerms
 
 partial def Exp.toTerm (e : Exp) : CoreM Term := do
   match e with
@@ -539,13 +372,7 @@ partial def Exp.toTerm (e : Exp) : CoreM Term := do
     mkTuple es
 
   | .Unary op e =>
-  -- consider example:
-  -- let «tmp%%» := (a1, a2, a2)
-  -- instead of `let c : Int := «tmp%%».«1»;`
-  -- we want `let c : Int := Prod.fst (Prod.snd «tmp%%»)`
-  -- or `let c : Int := «tmp%%».2.1`
-    let e ← e.toTerm
-    op.toTerm e
+    op.toTerm (← e.toTerm)
 
   | .Binary op lhs rhs =>
     let lhs ← lhs.toTerm
@@ -658,6 +485,7 @@ partial def Stm.toTerm (stm : Stm) : CoreM (TSyntax `tactic) := do
 
   | _ => `(tactic| skip)
 
+
 private def makeTypeBinders (as : Array String) : CoreM (TSyntaxArray ``bracketedBinder) := do
   Prod.fst <$> as.foldlM (init := (#[], 1)) (fun (arr, c) a => do
     let a ← a.toIdent
@@ -704,7 +532,7 @@ def ProofFn.toCommand (f : ProofFn) : CoreM (TSyntax `command) := do
   let ⟨name, inputs, requires, ensures, body⟩ := f
   let ident ← name.toIdent
   let args ← makeBracketedBinders inputs.toArray
-  let body ←
+  let _ ← -- Currently we ignore the proof body if the whole proof function is marked with `by(lean)`
     match body with
     | none => `(tactic| verus)
     | some body => body.toTerm

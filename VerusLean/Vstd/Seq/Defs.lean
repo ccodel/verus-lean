@@ -2,22 +2,26 @@ import Std.Data.HashMap
 import Batteries.Data.List
 
 namespace Vstd
-
+-- namespace List, define some reimplementations, so we can refer to them in the translation table
 /--
   Verus `Vstd` sequences. They are always finite.
 -/
--- TODO: check James' LeanColls!
+-- TODO: just use List for Seq, have a translation table
 class VSeqLikeF (L : Type u → Type u) -- actually `Type 0 → Type 0` would be enough
   extends
     Functor L
   where
   toList : {α : Type u} → L α → List α
   ofList : {α : Type u} → List α → L α
-  empty : {α : Type u} → L α := ofList []
-
-  new : {α : Type u} → (len : Nat) → (f : Int → α) → L α -- similar to List.ofFn but not the same
-  length : {α : Type u} → L α → Nat := fun s => toList s |>.length
-  get? : {α : Type u} → L α → Nat → Option α := fun s i => (toList s)[i]?
+  empty : {α : Type u} → L α :=
+    ofList []
+  -- for now keep the signature the same as in Verus, not `(f : Nat → α)`
+  new {α : Type u} (len : Nat) (f : Int → α) : L α -- similar to List.ofFn but not the same
+    := List.ofFn (n := len) (f := fun x => f x.val) |> ofList
+  length : {α : Type u} → L α → Nat :=
+    fun s => toList s |>.length
+  get? : {α : Type u} → L α → Nat → Option α :=
+    fun s i => (toList s)[i]?
   get [Inhabited α] : (s : L α) → (i : Nat) → (h : i < length s) → α :=
     fun s i _ => (toList s).getD i default
   get! [Inhabited α] : L α → Nat → α :=
@@ -45,7 +49,8 @@ class VSeqLikeF (L : Type u → Type u) -- actually `Type 0 → Type 0` would be
     fun s₁ s₂ => (toList s₁).isPrefixOf (toList s₂)
   isSuffixOf [BEq α] : L α → L α → Bool :=
     fun s₁ s₂ => (toList s₁).isSuffixOf (toList s₂)
-  sortBy : {α : Type u} → (α → α → Bool) → L α → L α
+  sortBy {α : Type u} (pred : α → α → Bool) : L α → L α
+   := fun l => List.mergeSort (toList l) pred |> ofList
   filter : {α : Type u} → (L α) → (α → Bool) → L α :=
     fun s p => ofList ((toList s).filter p)
   maxVia [Inhabited α] : (L α) → (α → α → Bool) → α
@@ -96,13 +101,14 @@ class VSeqLikeF (L : Type u → Type u) -- actually `Type 0 → Type 0` would be
     fun s => ofList ((toList s).map toList |>.flatten) -- not the same implementation as in Verus
 /-
   max [Inhabited α] [Max α] : L α → α :=
-    fun s => (toList s).max?.get!
+    fun s => (toList s).max?.getD default
   min [Inhabited α] [Min α] : L α → α :=
     fun s => (toList s).min?.get!
-  sort : {α : Type u} → L α → L α -- there is Array.qsort but no List.qsort
-  merge_sorted_with : {α : Type u} → L α → L α → (α → α → Bool) → L α
+  sort [LE α] : L α → L α :=
+    fun s => ofList ((toList s).mergeSort)
+  merge_sorted_with : {α : Type u} → L α → L α → (α → α → Bool) → L α -/
   -- seq_to_set_rec
- -/
+
 namespace VSeqLikeF
 
 variable {L : Type u → Type u} [VSeqLikeF L]
@@ -121,9 +127,13 @@ instance instGetElem? [Inhabited α] : GetElem? (L α) Nat α (fun s i => i < le
 
 end VSeqLikeF
 
--- 1. L α is isomorphic to List α, toList, ofList, empty = ofList [], append s t = ofList (List.append (toList s) (toList t)), or say, toList (append s t) = List.append (toList s) (toList t)
--- 2. current approach
--- when you want to show List is an instance of Seq
+-- 1. define toList and fromList, show round trip => inherit all List functions and lemmas
+-- TODO: check James' LeanColls!
+-- e.g. append s t = ofList (List.append (toList s) (toList t)), or say, toList (append s t) = List.append (toList s) (toList t)
+
+-- 2. Current approach, and show that show List is an instance of Seq
+-- write theorems for the type class (a shim around the underlying List theorem?)
+-- In both cases, L α is isomorphic to List α?
 
 open VSeqLikeF in
 class LawfulVSeqLikeF (L : Type u → Type u) [VSeqLikeF L]
@@ -131,9 +141,10 @@ class LawfulVSeqLikeF (L : Type u → Type u) [VSeqLikeF L]
     LawfulFunctor L
   where
   protected ext (s₁ s₂ : L α) : (length s₁ = length s₂ ∧ ∀ i, i < length s₁→ get? s₁ i = get? s₂ i) → s₁ = s₂
-  bla : ∀ {α : Type u} (s : L α), ofList (toList s) = s
+  roundtrip : ∀ {α : Type u} (s : L α), ofList (toList s) = s
   ax_empty : [] = toList (empty : L α)
 
+  -- TODO Do we want all these below:
   length_empty : length (empty : L α) = 0
   length_new {α : Type u} (len : Nat) (f : Int → α) : length (new len f : L α) = len
   length_push {α : Type u} (s : L α) (a : α) : length (push s a) = length s + 1

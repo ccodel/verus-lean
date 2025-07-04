@@ -1,28 +1,60 @@
 import VerusLean.VLIR.Defs
-import VerusLean.Tactic.ByVerus
-import Lean.Elab
 import VerusLean.Vstd.Seq.Defs
 import VerusLean.Vstd.Set.Defs
 import VerusLean.Vstd.Map.Defs
-import VerusLean.VLIR.Translation
 
 namespace VerusLean
 
 open Lean Syntax Elab Command Parser Term Parser.Command Parser.Term
-
--- def combine2Maps (map1 map2 : Std.HashMap Ident Ident) : Std.HashMap Ident Ident :=
---   map2.fold (fun acc k v => acc.insert k v) map1
--- def combineMaps (maps : List (Std.HashMap Ident Ident)) : Std.HashMap Ident Ident :=
---   maps.foldl (fun acc map => combine2Maps acc map) Std.HashMap.emptyWithCapacity
--- private def TranslationNames : Std.HashMap Ident Ident :=
---   combineMaps [Vstd.SetVstdTranslationNames, Vstd.SetLibVstdTranslationNames,
---               Vstd.MapVstdTranslationNames, Vstd.MapLibVstdTranslationNames,
---               Vstd.SeqVstdTranslationNames, Vstd.SeqLibVstdTranslationNames]
-
-
+/-
+def combine2Maps (map1 map2 : Std.HashMap Ident Ident) : Std.HashMap Ident Ident :=
+  map2.fold (fun acc k v => acc.insert k v) map1
+def combineMaps (maps : List (Std.HashMap Ident Ident)) : Std.HashMap Ident Ident :=
+  maps.foldl (fun acc map => combine2Maps acc map) Std.HashMap.emptyWithCapacity
 private def TranslationNames : Std.HashMap Ident Ident :=
-  Std.HashMap.ofList <|
-  (List.map (f := fun (x, y) => (String.toName s!"Vstd.Set.{x}", String.toName y)) <|
+  combineMaps [Vstd.SetVstdTranslationNames, Vstd.SetLibVstdTranslationNames,
+              Vstd.MapVstdTranslationNames, Vstd.MapLibVstdTranslationNames,
+              Vstd.SeqVstdTranslationNames, Vstd.SeqLibVstdTranslationNames]
+ -/
+
+def translateSyntaxOriginal (fn : Lean.Ident) (params : List Term) : CoreM Term := do
+  -- let f ← Ident.toIdent fn
+  params.foldlM (init := fn) (fun acc t => do
+    `($acc:term ($t:term)))
+
+def translateSyntaxView (_ : Lean.Ident) (params : List Term) : CoreM Term := do
+  match params with
+    | [] => panic! "Vstd.View.view function called with no arguments"
+    | t :: ts =>
+      ts.foldlM (init := t) (fun acc t => `($acc:term $t:term))
+
+def translateSyntaxContains (fn : Lean.Ident) (params : List Term) : CoreM Term := do
+  if params.length != 2 then
+    panic! s!"{fn} expects 2 arguments, got {params.length}"
+  else
+    let s := params[0]!
+    let e := params[1]!
+    `($e:term ∈ $s:term)
+
+/- There are some problems with translating to notations such as ∈, []!, etc.
+   For example, although we did define instances `instHAdd` and `instHAddSingleton`,
+   Lean will fail to infer the types in `∅ + 5` because they are not outParams,
+   unless we write it explicitly as: `(∅ : Set Nat) + (5 : Nat)`.
+   For `GetElem`, since `idx` is not an outParam, if we have `m : Vstd.Map Int Int`,
+   Lean will not know that the `20` in `m[20]! = 200` is an Int, we must write
+   `m[(20:Int)]! = 200` instead. Translating to functions is fine without specifying the types.
+-/
+def translateSyntaxIndex (fn : Lean.Ident) (params : List Term) : CoreM Term := do
+  if params.length != 2 then
+    panic! s!"{fn} expects 2 arguments, got {params.length}"
+  else
+    let m := params[0]!
+    let k := params[1]!
+    `($m:term[$k:term]!)
+
+def VstdSyntaxTable : Std.HashMap Name (Name × (Lean.Ident → List Term → CoreM Term)) :=
+  (Std.HashMap.ofList <|
+  (List.map (f := fun (x, y) => (String.toName s!"Vstd.Set.{x}", (String.toName y, translateSyntaxOriginal))) <|
   [("empty", "VSetLikeF.empty"), -- or do we translate them to VSetF, by default assuming finite sets?
   ("new", "VSetInfF.new"),
   ("full", "VSetInfF.full"), -- might be an infinite set
@@ -49,7 +81,7 @@ private def TranslationNames : Std.HashMap Ident Ident :=
   ("Fold.fold", "VSetInfF.fold"),
   ])
   ++
-  (List.map (f := fun (x, y) => (String.toName s!"Vstd.Set_lib.{x}", String.toName y)) <|
+  (List.map (f := fun (x, y) => (String.toName s!"Vstd.Set_lib.{x}", (String.toName y, translateSyntaxOriginal))) <|
   [("is_full", "VSetInfF.isFull"),
   ("is_empty", "VSetLikeF.isEmpty"),
   ("map", "VSetLikeF.map'"),
@@ -66,7 +98,7 @@ private def TranslationNames : Std.HashMap Ident Ident :=
   ("set_int_range", "VSetLikeF.setIntRange"), -- if a set contains ints in [a,b), its size is bounded by b-a
   ])
   ++
-  (List.map (f := fun (x, y) => (String.toName s!"Vstd.Map.{x}", String.toName y)) <|
+  (List.map (f := fun (x, y) => (String.toName s!"Vstd.Map.{x}", (String.toName y, translateSyntaxOriginal))) <|
   [("empty", "VMapLikeF.empty"),
   -- There is a discussion about set.mk_map: https://github.com/verus-lang/verus/discussions/1666
   ("total", "VMapLikeF.total"), -- do we want an infinite map type class?
@@ -82,7 +114,7 @@ private def TranslationNames : Std.HashMap Ident Ident :=
   ("len", "VMapLikeF.size"), -- or LawfulVMapLikeF.size?
   ])
   ++
-  (List.map (f := fun (x, y) => (String.toName s!"Vstd.Map_lib.{x}", String.toName y)) <|
+  (List.map (f := fun (x, y) => (String.toName s!"Vstd.Map_lib.{x}", (String.toName y, translateSyntaxOriginal))) <|
   [("is_full", "VMapLikeF.keys |> VSetInfF.full"), -- need something beyond a translation table to operate on the domain set
   ("is_empty", "VMapLikeF.keys |> VSetLikeF.empty"), -- same
   ("contains_key", "VMapLikeF.memKeys"),
@@ -103,7 +135,7 @@ private def TranslationNames : Std.HashMap Ident Ident :=
   ("invert", "")
   ])
   ++
-  (List.map (f := fun (x, y) => (String.toName s!"Vstd.Seq.{x}", String.toName y)) <|
+  (List.map (f := fun (x, y) => (String.toName s!"Vstd.Seq.{x}", (String.toName y, translateSyntaxOriginal))) <|
   [("empty", "VSeqLikeF.empty"),
   ("new", "VSeqLikeF.new"),
   ("len", "VSeqLikeF.length"),
@@ -120,7 +152,7 @@ private def TranslationNames : Std.HashMap Ident Ident :=
   ("first", "VSeqLikeF.first"),
   ])
   ++
-  (List.map (f := fun (x, y) => (String.toName s!"Vstd.Seq_lib.{x}", String.toName y)) <|
+  (List.map (f := fun (x, y) => (String.toName s!"Vstd.Seq_lib.{x}", (String.toName y, translateSyntaxOriginal))) <|
   [("map", "VSeqLikeF.mapEntries"), -- Verus TODO: rename to `map_entries`?
   ("map_values", "Functor.map"), -- Verus TODO: rename to `map`?
   ("is_prefix_of", "VSeqLikeF.isPrefixOf"),
@@ -162,4 +194,12 @@ private def TranslationNames : Std.HashMap Ident Ident :=
   ("merge_sorted_with", "VSeqLikeF.merge_sorted_with"),
 
   ("seq_to_set_rec", ""),
-  ])
+  ]))
+  |>.insert (String.toName "Vstd.View.view")
+    (String.toName "Vstd.View.view", translateSyntaxView)
+  |>.insert (String.toName "Vstd.Set.contains")
+    (String.toName "∈", translateSyntaxContains)
+  |>.insert (String.toName "Vstd.Map.index")
+    (String.toName "", translateSyntaxIndex)
+  |>.insert (String.toName "Vstd.Map.spec_index")
+    (String.toName "", translateSyntaxIndex)

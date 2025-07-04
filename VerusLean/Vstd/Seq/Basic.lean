@@ -4,6 +4,16 @@ namespace Vstd
 
 namespace VSeqLikeF
 
+variable {L : Type u → Type u} [VSeqLikeF L] {α β : Type u}
+
+-- TODO: add theorems (just like List theorems)
+-- In the first approach, the proof could be ":= List.map_nil", perhaps automate this
+-- In the second approach, the theorem would need to be re-proven
+-- (but then the List version could depend/be inherited from the type class version!).
+@[simp]
+theorem map_nil (f : A -> B) : Functor.map f (empty : L A) = (empty : L B) := sorry
+
+
 /-! # lawful sequences -/
 open LawfulVSeqLikeF
 

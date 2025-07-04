@@ -10,9 +10,6 @@ instance L : VSeqLikeF Seq where
   map := fun f s => match s with | .mk elems => .mk (elems.map f)
   toList := fun s => match s with | .mk elems => elems
   ofList := fun elems => .mk elems
-  new := fun len f =>
-    .mk (List.range len |>.map Int.ofNat |>.map f) -- incorrect
-  sortBy := fun cmp s => s
   maxVia := fun s cmp => default -- incorrect
   minVia := fun s cmp => default -- incorrect
   indexOfLast := fun s a => match s with
