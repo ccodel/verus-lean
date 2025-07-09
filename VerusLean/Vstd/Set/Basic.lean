@@ -2,85 +2,33 @@ import VerusLean.Vstd.Set.Defs
 
 namespace Vstd
 
-namespace VSetLikeF
+namespace Set
 
-variable {S : Type u → Type v} [VSetLikeF S] {α β : Type u}
-
-theorem add_def (s t : S α) : union s t = s ∪ t := rfl
-
-theorem mem_or_not_mem (a : α) (s : S α) : a ∈ s ∨ a ∉ s := by
+theorem mem_or_not_mem (a : α) (s : Set α) : a ∈ s ∨ a ∉ s := by
   by_cases h : a ∈ s
   · exact Or.inl h
   · exact Or.inr h
 
-section
-variable (S : Type u → Type v) (α : Type u) [DecidableEq α] [VSetF S] [LawfulVSetF S]
-instance : DecidableRel (fun (x : α) (s : S α) => x ∈ s) := by
-  rw [DecidableRel]
-  intro a s
-  exact decidable_of_iff (a ∈ VSetF.toList s) (LawfulVSetF.mem_toList_iff (s := s) a).symm
-end
-
-section
-variable (S : Type → Type) [VSetF S] [LawfulVSetF S]
-
-example (x : Nat) (s : S Nat) := if x ∈ s then 1 else 0
-
-variable {α : Type} [DecidableEq α]
-
-example : ∀ x (s : S α), x ∈ s ∨ x ∉ s := by
-  intro x s
-  apply Decidable.em
-
-open Classical
-noncomputable section
-
-example (x : Nat → Nat) (s : S (Nat → Nat)) :=
-  if x ∈ s then 0 else 1
-
-end
-
-end
-
-/-! # lawful sets -/
-open LawfulVSetLikeF
-
-variable {S : Type u → Type v} [VSetLikeF S] [LawfulVSetLikeF S] {α β : Type u}
-
--- variable {S_decidable : Type u → Type v} [Decidable u] [VSetLikeF S] [LawfulVSetLikeF S] {α β : Type u}
-
 /-! # empty -/
 
 @[simp]
-theorem mem_empty_iff_false (a : α) : a ∈ (∅ : S α) ↔ False :=
+theorem mem_empty_iff_false (a : α) : a ∈ (∅ : Set α) ↔ False :=
   Iff.intro
     (fun h => (not_mem_empty a) h)
     (fun h => False.elim h)
 
 @[simp]
-theorem empty_subset (s : S α) : ∅ ⊆ s := by
+theorem empty_subset (s : Set α) : ∅ ⊆ s := by
   simp only [subset_iff, not_mem_empty, false_implies, implies_true]
 
 @[simp]
-theorem subset_empty_iff {s : S α} : s ⊆ ∅ ↔ s = ∅ := by
-  simp only [subset_iff, not_mem_empty, imp_false]
+theorem subset_empty_iff {s : Set α} : s ⊆ ∅ ↔ ext_eq s ∅ := by
+  simp only [subset_iff, not_mem_empty, imp_false, ext_eq_iff, iff_false]
+
+theorem ne_empty_iff_exists_mem {s : Set α} : ¬(ext_eq s ∅) ↔ ∃ x, x ∈ s := by
   constructor
   · intro h
-    ext a
-    simp only [not_mem_empty, iff_false]
-    exact h a
-  · rintro rfl
-    simp only [not_mem_empty, not_false_eq_true, implies_true]
-
-theorem eq_empty_iff_forall_not_mem {s : S α} : s = ∅ ↔ ∀ x, x ∉ s := by
-  have := Iff.symm <| subset_empty_iff (s := s)
-  simp only [subset_iff, not_mem_empty, imp_false] at this
-  exact this
-
-theorem ne_empty_iff_exists_mem {s : S α} : s ≠ ∅ ↔ ∃ x, x ∈ s := by
-  constructor
-  · intro h
-    have := mt (eq_empty_iff_forall_not_mem (s := s)).mpr h
+    have := mt (eq_empty_iff).mp h
     simp only [Classical.not_forall, Classical.not_not] at this
     exact this
   · rintro ⟨x, hx⟩ rfl
@@ -108,6 +56,17 @@ theorem subset_trans {s₁ s₂ s₃ : S α} : s₁ ⊆ s₂ → s₂ ⊆ s₃ �
 
 theorem le_trans {s₁ s₂ s₃ : S α} : s₁ ≤ s₂ → s₂ ≤ s₃ → s₁ ≤ s₃ :=
   subset_trans
+
+end Set
+
+end Vstd
+
+#exit
+
+/-! # lawful sets -/
+open LawfulVSetLikeF
+
+variable {S : Type u → Type v} [VSetLikeF S] [LawfulVSetLikeF S] {α β : Type u}
 
 /-! # union -/
 

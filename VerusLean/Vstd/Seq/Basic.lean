@@ -1,5 +1,7 @@
 import VerusLean.Vstd.Seq.Defs
 
+#exit
+
 namespace Vstd
 
 namespace VSeqLikeF

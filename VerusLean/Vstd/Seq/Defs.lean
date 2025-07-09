@@ -1,7 +1,38 @@
 import Std.Data.HashMap
 import Batteries.Data.List
 
-namespace Vstd
+/-
+  Verus `Seq`s are just Lean `List`s. All `Seq`s are finite.
+
+  We define these new operations at the root "List" namespace.
+  Alternatively, you can just map them to the underlying List operations
+  in a translation table. But defining a List "shim" is more stable, I think.
+-/
+
+namespace List
+
+variable {α : Type u} {β : Type v} {γ : Type w}
+
+abbrev new (n : Nat) (f : Nat → α) : List α :=
+  List.ofFn (n := n) (f := fun x => f x.val)
+
+-- Note: Verus `Seq.index` is `List.getD` with default, so you will need `[Inhabited α]`
+abbrev index [Inhabited α] (l : List α) (i : Nat) : α :=
+  l.getD i default
+
+abbrev push (l : List α) (a : α) : List α :=
+  l ++ [a]
+
+-- Maybe make `i` be an `Int`?
+abbrev update (l : List α) (i : Nat) (a : α) : List α :=
+  l.set i a
+
+
+
+end List
+
+#exit
+
 -- namespace List, define some reimplementations, so we can refer to them in the translation table
 /--
   Verus `Vstd` sequences. They are always finite.
