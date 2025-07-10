@@ -1076,6 +1076,15 @@ partial def Decl.fromJson (j : Json) : VParser (Option Decl) := do
   | "Datatype" => datatypeFromJson declObj
   | "SpecFn" => return (← SpecFn.fromJson declObj).map (Decl.specFn ·)
   | "ProofFn" => ProofFn.fromJson declObj
+  | "Mutual" =>
+    -- A mutual declaration is a list of declarations, each of which
+    -- is a `DeclType` object
+    let declsArr ← declObj.getArrM
+    let decls ← declsArr.filterMapM (fun d => do
+      match ← Decl.fromJson d with
+      | none => return none
+      | some decl => return some decl)
+    return some <| Decl.mutualBlock decls.toList
   | s => throw s!"Unexpected declaration type: {s}"
 
 -- CC TODO: Returning a pair of `(namespace, decls in that namespace)` limits us

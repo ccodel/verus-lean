@@ -592,6 +592,24 @@ def FuncCheckSst.toCommand (f : FuncCheckSst) : CoreM (TSyntax `command) := do
   `(command| theorem $ident $args:bracketedBinder* : $body := by auto? )
 
 
+-- mutual
+
+-- def mutualBlockToCommand (ds : List Decl) : CoreM (TSyntax `command) := do
+--   let decls : List Command ← ds.mapM Decl.toTerm
+-- /-
+--   let first : Command := decls[0]!
+--   let rest : List Command := decls.tail
+--   let commands : Command := rest.foldlM (init := first)
+--     (fun acc t =>
+--     `($acc:command
+--     $t:command)) -/
+--   let commands ← decls.toArray.mapM (fun d => do
+--     `(command| $d:command))
+--   `(command|
+--     mutual
+--     $commands:command*
+--     end)
+
 def Decl.toTerm (d : Decl) : CoreM (TSyntax `command) := do
   match d with
   | .assertion a => a.toCommand
@@ -600,5 +618,9 @@ def Decl.toTerm (d : Decl) : CoreM (TSyntax `command) := do
   | .struct s => s.toCommand
   | .enum e => e.toCommand
   | .func f => f.toCommand
+  | .mutualBlock ds => sorry
+    -- mutualBlockToCommand ds
+
+-- end /- mutual -/
 
 end VerusLean

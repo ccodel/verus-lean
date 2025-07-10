@@ -449,6 +449,7 @@ inductive Decl where
   | struct (s : Struct)
   | enum (e : Enum)
   | func (f : FuncCheckSst)
+  | mutualBlock (d : List Decl)
 deriving Repr, Inhabited, Hashable
 
 instance Assertion.instCoeDecl : Coe Assertion Decl := ⟨Decl.assertion⟩
@@ -472,6 +473,7 @@ instance Decl.instVName : VName Decl where
     | .struct s => s.name
     | .enum e => e.name
     | .func f => f.name
+    | .mutualBlock d => .anonymous -- todo
 
 --------------------------------------------------------------------------------
 

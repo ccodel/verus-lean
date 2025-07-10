@@ -1,6 +1,6 @@
-import VerusLean.Vstd.Set.Shim
+-- import VerusLean.Vstd.Set.Shim
 import VerusLean.Vstd.Map.Defs
-
+#exit
 namespace Vstd
 
 inductive Map (α : Type u) (β : Type v)
