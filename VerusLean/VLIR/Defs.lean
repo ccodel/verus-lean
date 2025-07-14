@@ -237,6 +237,7 @@ inductive UnaryOp where
     In Verus, this is defined under `UnaryOpr`.
   -/
   | Unbox (t : Typ)
+  | HasType (t : Typ)
 deriving Repr, Inhabited, Hashable
 
 /--
@@ -410,6 +411,7 @@ structure SpecFn where
   name : Ident
   inputs : List (String × Typ)
   returnType : Typ
+  decreases : Option Stm
   body : Exp
 deriving Repr, Inhabited, Hashable
 

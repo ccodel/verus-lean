@@ -228,6 +228,7 @@ def UnaryOp.toTerm (u : UnaryOp) (e : Term) : CoreM Term := do
       | _ => $falseIdent)
   | .Box _ => `($e)   -- Ignore boxed-type information when constructing terms
   | .Unbox _ => `($e) -- Ignore boxed-type information when constructing terms
+  | .HasType _ => `($e) -- todo
 
 def BinaryOp.toTerm (b : BinaryOp) (lhs rhs : Term) : CoreM Term := do
   match b with
@@ -407,7 +408,49 @@ def addToTacticOption (acc : Option (TSyntax `tactic)) (tac : TSyntax `tactic) :
   | none => return tac
   | some acc => `(tactic| ($acc:tactic; $tac:tactic))
 
-partial def Stm.toTerm (stm : Stm) : CoreM (TSyntax `tactic) := do
+partial def Stm.toTerm (stm : Stm) : CoreM Term := do
+  match stm with
+  | .Assert _ =>
+    `(term| skip)
+
+  | .Assume e =>
+    let e ← e.toTerm
+    `(term| skip)
+
+  | .AssertBitVector _ ens =>
+    `(term| skip)
+
+  | .AssertLean e =>
+    let e ← e.toTerm
+    `(term| skip)
+
+  | .Assign lhs lhsTy rhs _ =>
+    let lhs ← lhs.toIdent
+    let lhsTy ← lhsTy.toTerm
+    let rhs ← rhs.toTerm
+    `(term| $rhs)
+
+  | .DeadEnd stm => stm.toTerm
+
+  | .Block stms =>
+    let stms ← stms.toArray.mapM (fun s => do
+      let s ← s.toTerm
+      `(term| $s:term))
+
+    let stms : Array (TSyntax `term) := stms.filter (fun tac =>
+      match tac with
+      | `(term| skip) => false
+      | _ => true)
+    if stms.size = 0 then
+      `(term| skip)
+    else
+      stms.foldlM (start := 1) (init := stms[0]!) (fun acc s => do
+      `($acc:term $s:term))
+
+  | _ => `(term| skip)
+
+
+partial def Stm.toTactic (stm : Stm) : CoreM (TSyntax `tactic) := do
   match stm with
   | .Assert _ =>
     /-
@@ -457,11 +500,11 @@ partial def Stm.toTerm (stm : Stm) : CoreM (TSyntax `tactic) := do
     let rhs ← rhs.toTerm
     `(tactic| let $lhs : $lhsTy := $rhs)
 
-  | .DeadEnd stm => stm.toTerm
+  | .DeadEnd stm => stm.toTactic
 
   | .Block stms =>
     let stms ← stms.toArray.mapM (fun s => do
-      let s ← s.toTerm
+      let s ← s.toTactic
       `(tactic| $s:tactic))
 
     -- Filter our those tactics that are trivial (`skip`)
@@ -521,12 +564,18 @@ def Assertion.toCommand (a : Assertion) : CoreM (TSyntax `command) := do
   `(command| theorem $ident $args:bracketedBinder* : $eTerm := by auto? )
 
 def SpecFn.toCommand (f : SpecFn) : CoreM (TSyntax `command) := do
-  let ⟨name, inputs, returnType, body⟩ := f
+  let ⟨name, inputs, returnType, decreases, body⟩ := f
   let ident ← name.toIdent
   let args ← makeBracketedBinders inputs.toArray
   let returnType ← returnType.toTerm
   let body ← body.toTerm
-  `(command| def $ident $args:bracketedBinder* : $returnType := $body )
+  match decreases with
+  | none =>
+    `(command| def $ident $args:bracketedBinder* : $returnType := $body )
+  | some decreases =>
+    let dec ← decreases.toTerm
+    `(command| def $ident $args:bracketedBinder* : $returnType := $body
+        termination_by $dec)
 
 def ProofFn.toCommand (f : ProofFn) : CoreM (TSyntax `command) := do
   let ⟨name, inputs, requires, ensures, body⟩ := f
@@ -535,7 +584,7 @@ def ProofFn.toCommand (f : ProofFn) : CoreM (TSyntax `command) := do
   let _ ← -- Currently we ignore the proof body if the whole proof function is marked with `by(lean)`
     match body with
     | none => `(tactic| verus)
-    | some body => body.toTerm
+    | some body => body.toTactic
   let premises ← makeArrows requires.toArray
   let conclusions ← makeAnds ensures.toArray
   `(command| theorem $ident $args:bracketedBinder* : $premises → ($conclusions) := by
@@ -592,25 +641,25 @@ def FuncCheckSst.toCommand (f : FuncCheckSst) : CoreM (TSyntax `command) := do
   `(command| theorem $ident $args:bracketedBinder* : $body := by auto? )
 
 
--- mutual
+mutual
 
--- def mutualBlockToCommand (ds : List Decl) : CoreM (TSyntax `command) := do
---   let decls : List Command ← ds.mapM Decl.toTerm
--- /-
---   let first : Command := decls[0]!
---   let rest : List Command := decls.tail
---   let commands : Command := rest.foldlM (init := first)
---     (fun acc t =>
---     `($acc:command
---     $t:command)) -/
---   let commands ← decls.toArray.mapM (fun d => do
---     `(command| $d:command))
---   `(command|
---     mutual
---     $commands:command*
---     end)
+partial def mutualBlockToCommand (ds : List Decl) : CoreM (TSyntax `command) := do
+  let decls : List Command ← ds.mapM Decl.toTerm
+/-
+  let first : Command := decls[0]!
+  let rest : List Command := decls.tail
+  let commands : Command := rest.foldlM (init := first)
+    (fun acc t =>
+    `($acc:command
+    $t:command)) -/
+  let commands ← decls.toArray.mapM (fun d => do
+    `(command| $d:command))
+  `(command|
+    mutual
+    $commands:command*
+    end)
 
-def Decl.toTerm (d : Decl) : CoreM (TSyntax `command) := do
+partial def Decl.toTerm (d : Decl) : CoreM (TSyntax `command) := do
   match d with
   | .assertion a => a.toCommand
   | .specFn f => f.toCommand
@@ -618,9 +667,8 @@ def Decl.toTerm (d : Decl) : CoreM (TSyntax `command) := do
   | .struct s => s.toCommand
   | .enum e => e.toCommand
   | .func f => f.toCommand
-  | .mutualBlock ds => sorry
-    -- mutualBlockToCommand ds
+  | .mutualBlock ds => mutualBlockToCommand ds
 
--- end /- mutual -/
+end /- mutual -/
 
 end VerusLean

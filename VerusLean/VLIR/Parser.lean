@@ -511,7 +511,7 @@ def UnaryOp.fromJson (j : Json) : m UnaryOp := do
   -- TODO: Require the parser state to refer to data types?
 -/
 def UnaryOp.oprFromJson (j : Json) : m UnaryOp := do
-  match ← j["Field", "IsVariant", "Box", "Unbox"] with
+  match ← j["Field", "IsVariant", "Box", "Unbox", "HasType"] with
   | ("Field", obj) =>
     try
       let dt ← pathedNameFromJson (pathKey := "Path") <| ← obj.getObjValM "datatype"
@@ -525,9 +525,6 @@ def UnaryOp.oprFromJson (j : Json) : m UnaryOp := do
         return .Proj' size field
       catch _ =>
         throw s!"[UnaryOp.oprFromJson?]: Encounter Field, neither Path nor Tuple is found, got {obj}"
-/-     let dt ← pathedNameFromJson (pathKey := "Path") <| ← obj.getObjValM "datatype"
-    let field ← obj.getStrUnderKeyM "field"
-    return .Proj dt field -/
   | ("IsVariant", obj) =>
     let dt ← pathedNameFromJson (pathKey := "Path") <| ← obj.getObjValM "datatype"
     let variant ← obj.getStrUnderKeyM "variant"
@@ -538,6 +535,9 @@ def UnaryOp.oprFromJson (j : Json) : m UnaryOp := do
   | ("Unbox", obj) =>
     let typ ← Typ.fromJson obj
     return .Unbox typ
+  | ("HasType", obj) =>
+    let typ ← Typ.fromJson obj
+    return .HasType typ
   | _ => throw s!"unsupported unaryop: {j}"
 
 def BinaryOp.fromJson (j : Json) : m BinaryOp :=
@@ -943,7 +943,15 @@ def SpecFn.fromJson (j : Json) : VParser (Option SpecFn) := do
   -- For spec functions, this expression is stored in the axioms
   let bodyObj ← j.getObjValByPath ["axioms", "spec_axioms", "body_exp"]
   let bodyExp ← fromJsonSpanned bodyObj Exp.fromJson
-  return some <| SpecFn.mk name args returnType bodyExp
+
+  try
+    -- let termCheckKind ← j.getObjValByPathM ["axioms", "spec_axioms", "termination_check", "post_condition", "kind"]
+    -- if termCheckKind != "DecreasesImplicitLemma" then
+    let termCheck : Json ← j.getObjValByPath ["axioms", "spec_axioms", "termination_check"]
+    let decreases ← fromJsonSpanned (← termCheck.getObjValM "body") Stm.fromJson
+    return some <| SpecFn.mk name args returnType decreases bodyExp
+  catch _ =>
+    return some <| SpecFn.mk name args returnType none bodyExp
 
 
 def ProofFn.fromJson (j : Json) : VParser ProofFn := do
