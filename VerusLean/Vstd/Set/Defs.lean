@@ -204,10 +204,16 @@ def insert' [DecidableEq α] (s : Set α) (a : α) : Set α :=
 instance instInsert [DecidableEq α] : Insert α (Set α) where
   insert := (fun a s => insert s a)
 
+instance instHAddSingleton [DecidableEq α] : HAdd (Set α) α (Set α) where
+  hAdd := (fun s a => insert s a)
+
 -- SHIM
 def remove [DecidableEq α] (s : Set α) (a : α) : Set α :=
   match s with
   | mk l => mk <| l.filter (fun x => x ≠ a)
+
+instance instHSubSingleton [DecidableEq α] : HSub (Set α) α (Set α) where
+  hSub := (fun s a => remove s a)
 
 -- SHIM
 -- This keeps around duplicates, but is pretty efficient otherwise
@@ -425,6 +431,11 @@ theorem mem_map_iff {α β : Type u} {f : α → β} {s : Set α} {b : β}
   match s with
   | mk l => simp [map, mem_iff]
 
+-- theorem mem_map_iff' {α β : Type u} {f : α → β} {s : Set α} {b : β}
+--     : b ∈ map f s ↔ ∃ a, a ∈ s ∧ f a = b := by
+--   match s with
+--   | mk l => simp [map, mem_iff]
+
 -- SHIM?
 theorem map_const {α β : Type u}
     : (Functor.mapConst : β → Set α → Set β) = Functor.map ∘ Function.const α := by
@@ -561,11 +572,11 @@ class LawfulVSetF (S : Type u → Type v) [VSetF S]
   extends
     LawfulVSetLikeF S
   where
-  card_empty : card (∅ : S α) = 0
-  card_insert : ∀ (a : α) (s : S α) [Decidable (a ∈ s)],
-      card (s + a) = if a ∈ s then card s else card s + 1
+  -- card_empty : card (∅ : S α) = 0
+  -- card_insert : ∀ (a : α) (s : S α) [Decidable (a ∈ s)],
+  --     card (s + a) = if a ∈ s then card s else card s + 1
   mem_toList_iff {s : S α} : ∀ (a : α), a ∈ s ↔ a ∈ toList s
-  fold_empty : ∀ {β : Type u} (f : β → α → β) (init : β), fold (∅ : S α) init f = init
+  -- fold_empty : ∀ {β : Type u} (f : β → α → β) (init : β), fold (∅ : S α) init f = init
   fold_mem : ∀ {β : Type u} (f : β → α → β) [FoldCommutative f] (init : β) {s : S α} (a : α),
       a ∈ s → fold s init f = fold (s - a) (f init a) f
 

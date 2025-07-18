@@ -236,7 +236,7 @@ def BinaryOp.toTerm (b : BinaryOp) (lhs rhs : Term) : CoreM Term := do
   | .Or => `($lhs ∨ $rhs)
   | .Xor => `($lhs ^^ $rhs)
   | .Implies => `($lhs → $rhs)
-  | .Eq _ => `($lhs = $rhs)
+  | .Eq _ => `(($lhs) = ($rhs))
   | .Ne => `($lhs ≠ $rhs)
   | .Inequality ineq => ineq.toTerm lhs rhs
   | .Arith arith _ => arith.toTerm lhs rhs

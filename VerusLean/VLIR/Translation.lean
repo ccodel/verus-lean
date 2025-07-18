@@ -55,36 +55,36 @@ def translateSyntaxIndex (fn : Lean.Ident) (params : List Term) : CoreM Term := 
 def VstdSyntaxTable : Std.HashMap Name (Name × (Lean.Ident → List Term → CoreM Term)) :=
   (Std.HashMap.ofList <|
   (List.map (f := fun (x, y) => (String.toName s!"Vstd.Set.{x}", (String.toName y, translateSyntaxOriginal))) <|
-  [("empty", "VSetLikeF.empty"), -- or do we translate them to VSetF, by default assuming finite sets?
-  ("new", "VSetInfF.new"),
+  [("empty", "Set.empty"), -- or do we translate them to VSetF, by default assuming finite sets?
+  ("new", "VSetInfF.new"), -- VSetInfF.new
   ("full", "VSetInfF.full"), -- might be an infinite set
-  ("contains", "VSetLikeF.mem"),
-  ("spec_has", "VSetLikeF.mem"),
-  ("subset_of", "VSetLikeF.subset"),
-  ("spec_le", "VSetLikeF.subset"),
-  ("insert", "VSetLikeF.insert"),
-  ("remove", "VSetLikeF.remove"),
-  ("union", "VSetLikeF.union"),
-  ("spec_add", "VSetLikeF.union"),
-  ("intersect", "VSetLikeF.inter"),
-  ("spec_mul", "VSetLikeF.inter"),
-  ("difference", "VSetLikeF.sdiff"),
-  ("spec_sub", "VSetLikeF.sdiff"),
+  ("contains", "Set.mem"),
+  ("spec_has", "Set.mem"),
+  ("subset_of", "Set.subset"),
+  ("spec_le", "Set.subset"),
+  ("insert", "Set.insert"),
+  ("remove", "Set.remove"),
+  ("union", "Set.union"),
+  ("spec_add", "Set.union"),
+  ("intersect", "Set.inter"),
+  ("spec_mul", "Set.inter"),
+  ("difference", "Set.sdiff"),
+  ("spec_sub", "Set.sdiff"),
   ("complement", "VSetInfF.compl"), -- might become an infinite set when taking complement
-  ("filter", "VSetLikeF.filter"),
+  ("filter", "Set.filter"),
   ("finite", "VSetInfF.isFinite"), -- should be a property of the generic VSetLikeF instead
-  ("len", "VSetF.card"), -- assuming finiteness
+  ("len", "Set.card"), -- assuming finiteness
   -- CZ: the signature now matches, if we don't require a hypothesis that the set is inhabited
-  ("choose", "VSetLikeF.choose"), -- The signatures for choose don't match
+  ("choose", "Set.choose"), -- The signatures for choose don't match
   ("mk_map", "VMapLikeF.fromSet"),
-  ("disjoint", "VSetLikeF.disjoint"),
-  ("Fold.fold", "VSetInfF.fold"),
+  ("disjoint", "Set.disjoint"),
+  ("Fold.fold", "Set.fold"),
   ])
   ++
   (List.map (f := fun (x, y) => (String.toName s!"Vstd.Set_lib.{x}", (String.toName y, translateSyntaxOriginal))) <|
   [("is_full", "VSetInfF.isFull"),
   ("is_empty", "VSetLikeF.isEmpty"),
-  ("map", "VSetLikeF.map'"),
+  ("map", "Set.map"),
   ("to_seq", ""),
   ("to_sorted_seq", ""),
   ("is_singleton", "VSetLikeF.isSingleton"),
@@ -93,7 +93,7 @@ def VstdSyntaxTable : Std.HashMap Name (Name × (Lean.Ident → List Term → Co
   ("to_multiset", ""), -- ignored for now
   ("all", "VSetLikeF.all"),
   ("any", "VSetLikeF.any"),
-  ("filter_map", "VSetLikeF.filterMap"),
+  ("filter_map", "Set.filterMap"),
   ("flatten", ""), -- ignored for now, as its type is different
   ("set_int_range", "VSetLikeF.setIntRange"), -- if a set contains ints in [a,b), its size is bounded by b-a
   ])
