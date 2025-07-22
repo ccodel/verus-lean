@@ -47,11 +47,11 @@ variable {α : Type u} {β : Type v} {γ : Type w}
 def empty : Set α :=
   mk []
 
-instance instInhabited : Inhabited (Set α) where
-  default := empty
-
 instance instEmptyCollection : EmptyCollection (Set α) where
   emptyCollection := Set.empty
+
+instance instInhabited : Inhabited (Set α) where
+  default := ∅
 
 -- SHIM
 def singleton (a : α) : Set α :=
@@ -210,7 +210,7 @@ instance instHAddSingleton [DecidableEq α] : HAdd (Set α) α (Set α) where
 -- SHIM
 def remove [DecidableEq α] (s : Set α) (a : α) : Set α :=
   match s with
-  | mk l => mk <| l.filter (fun x => x ≠ a)
+  | mk l => mk <| l.filter (· ≠ a)
 
 instance instHSubSingleton [DecidableEq α] : HSub (Set α) α (Set α) where
   hSub := (fun s a => remove s a)
@@ -352,7 +352,7 @@ theorem mem_singleton_iff {a b : α} : b ∈ ({a} : Set α) ↔ b = a := by
   simp [Singleton.singleton, singleton, mem_iff]
 
 -- SHIM
-theorem mem_insert_iff [DecidableEq α] {a b : α} {s : Set α} : b ∈ (s.insert a) ↔ b = a ∨ b ∈ s := by
+theorem mem_insert_iff [DecidableEq α] {a b : α} {s : Set α} : b ∈ (s + a) ↔ b = a ∨ b ∈ s := by
   match s with
   | mk l =>
     simp [insert, mem_iff]
@@ -362,26 +362,121 @@ theorem mem_insert_iff [DecidableEq α] {a b : α} {s : Set α} : b ∈ (s.inser
 
 -- SHIM
 theorem mem_remove_iff [DecidableEq α] {a b : α} {s : Set α}
-    : b ∈ (s.remove a) ↔ b ≠ a ∧ b ∈ s := by
+    : b ∈ (s - a) ↔ b ≠ a ∧ b ∈ s := by
   match s with
   | mk l => simp [remove, mem_iff]; exact And.comm
 
+/-! # card -/
+
+section card
+
+variable [DecidableEq α]
+
 -- SHIM
 @[simp]
-theorem card_empty [DecidableEq α] : card (∅ : Set α) = 0 := by
+theorem card_empty : card (∅ : Set α) = 0 := by
   simp [card, EmptyCollection.emptyCollection, empty]
 
 -- SHIM
-theorem card_insert [DecidableEq α] (a : α) (s : Set α) :
-    card (s.insert a) = if a ∈ s then card s else card s + 1 := by
+theorem card_insert (a : α) (s : Set α) :
+    card (s + a) = if a ∈ s then card s else card s + 1 := by
   match s with
   | mk l =>
-    simp only [insert, mem_iff]
+    simp only [HAdd.hAdd, insert, mem_iff]
     by_cases h : a ∈ l
     · simp [h]
     · simp [h, card]
 
+theorem card_eq_of_ext_eq {s₁ s₂ : Set α} : ext_eq s₁ s₂ → card s₁ = card s₂ := by
+  intro h_ext
+  stop
+  match s₁, s₂ with
+  | mk l₁, mk l₂ =>
+    simp only [ext_eq_iff, mem_iff] at h_ext
+    induction l₁ generalizing l₂ with
+    | nil =>
+      simp [mem_iff] at h_ext
+      have : l₂ = [] := by
+        sorry
+        done
+      subst this
+      simp [card]
+    | cons x xs ih =>
+      simp [card]
+      by_cases hx : x ∈ xs
+      · simp [hx] at h_ext ⊢
+        apply ih l₂
+        intro x'
+        constructor
+        · exact fun hx' => (h_ext _).mp (Or.inr hx')
+        · intro hx'
+          rcases (h_ext _).mpr hx' with (rfl | h)
+          <;> assumption
+      · simp [hx] at h_ext ⊢
+        have := (h_ext x).mp (Or.inl rfl)
+        have : ∀ (a : α), a ∈ xs ↔ a ∈ (l₂.filter (· ≠ x)) := by
+          sorry
+        rw [(ih _) this]
+        clear this
+        simp [card]
+        done
+      cases l₂ with
+      | nil =>
+        simp at h_ext
+        exact absurd rfl (h_ext x).1
+      | cons y ys =>
+
+        done
+      done
+
+-- SHIM
+theorem card_remove (a : α) (s : Set α)
+    : card (s - a) = if a ∈ s then card s - 1 else card s := by
+  stop
+  match s with
+  | mk l =>
+    induction l with
+    | nil => simp [HSub.hSub, remove, card, mem_iff, not_mem_empty]
+    | cons x xs ih => -- Inductive Step: The list is `x :: xs`
+      simp [remove, mem_iff] at ih
+      by_cases h_eq : x = a
+      · -- Case 1: The head of the list `x` IS the element `a` to be removed.
+        subst h_eq
+        simp [mem_iff, card]
+        by_cases hx : x ∈ xs
+        · simp [hx] at ih ⊢
+          rw [← ih]
+
+          done
+        simp [mem_iff, card]
+        simp [HSub.hSub, remove, mem_iff, card]
+        · simp [hx]
+          rw [← Set.remove]
+          done
+        rw [← List.remove]
+        rw [ih] -- Use the induction hypothesis on the LHS
+        -- split on `x ∈ xs`
+        split <;> simp_all [mem_iff, card]
+      · -- Case 2: The head of the list `x` is NOT the element `a`.
+        simp [remove, mem_iff, h_eq]
+        simp [card, ih, h_eq]
+        have hf : (a = x) ↔ False := by
+          simp only [ne_comm] at h_eq
+          simp only [←iff_false] at h_eq
+          exact h_eq
+        -- split on `x ∈ xs`
+        split <;> rename_i hx
+        <;> simp [mem_iff, hf]
+        split <;> rename_i hc
+        . have : xs ≠ [] := by
+            rintro rfl; simp_all
+          have h_card : card (mk xs) ≥ 1 := card_ge_one_of_ne_nil this
+          simp [Nat.sub_add_cancel h_card]
+        . rfl
+
 -- TODO: Can probably prove all other card_X theorems, but we might need more here
+
+end card /- section -/
 
 -- SHIM
 theorem choose_mem [Inhabited α] {s : Set α} : (∃ x, x ∈ s) → s.choose ∈ s := by
@@ -426,34 +521,27 @@ theorem mem_filter_iff {p : α → Bool} {s : Set α} {a : α}
   | mk l => simp [filter, mem_iff]
 
 -- SHIM
-theorem mem_map_iff {α β : Type u} {f : α → β} {s : Set α} {b : β}
-    : b ∈ f <$> s ↔ ∃ a, a ∈ s ∧ f a = b := by
+theorem mem_map_iff {f : α → β} {s : Set α} {b : β}
+    : b ∈ s.map f ↔ ∃ a, a ∈ s ∧ f a = b := by
   match s with
   | mk l => simp [map, mem_iff]
 
--- theorem mem_map_iff' {α β : Type u} {f : α → β} {s : Set α} {b : β}
---     : b ∈ map f s ↔ ∃ a, a ∈ s ∧ f a = b := by
---   match s with
---   | mk l => simp [map, mem_iff]
-
 -- SHIM?
-theorem map_const {α β : Type u}
-    : (Functor.mapConst : β → Set α → Set β) = Functor.map ∘ Function.const α := by
+theorem map_const : Set.mapConst (α := α) (β := β) = Set.map ∘ Function.const α := by
   ext b s
   rfl
 
 -- SHIM
 @[simp]
-theorem id_map {α : Type u} (s : Set α) : id <$> s = s := by
+theorem id_map (s : Set α) : s.map id = s := by
   match s with
-  | mk l => simp [Functor.map, map, id_eq]
+  | mk l => simp [map, id_eq]
 
 -- SHIM
-@[simp]
-theorem comp_map {α β γ : Type u} (g : α → β) (h : β → γ) (s : Set α) :
-    (h ∘ g) <$> s = h <$> g <$> s := by
+theorem comp_map (g : α → β) (h : β → γ) (s : Set α) :
+    s.map (h ∘ g) = (s.map g).map h := by
   match s with
-  | mk l => simp only [Functor.map, map, List.map_map]
+  | mk l => simp only [map, List.map_map]
 
 instance instLawfulFunctor : LawfulFunctor Set where
   map_const := map_const
@@ -490,10 +578,10 @@ class SetFold (f : β → α → β) where
 -- SHIM
 @[simp]
 theorem fold_insert [DecidableEq α] (s : Set α) (a : α) (f : β → α → β) [SetFold f] (init : β)
-    : fold (insert s a) init f = f (fold s init f) a := by
+    : fold (s + a) init f = f (fold s init f) a := by
   match s with
   | mk l =>
-    simp [insert, fold]
+    simp [HAdd.hAdd, insert, fold]
     induction l generalizing init with
     | nil => simp [insert, fold]
     | cons x xs ih =>
@@ -572,9 +660,6 @@ class LawfulVSetF (S : Type u → Type v) [VSetF S]
   extends
     LawfulVSetLikeF S
   where
-  -- card_empty : card (∅ : S α) = 0
-  -- card_insert : ∀ (a : α) (s : S α) [Decidable (a ∈ s)],
-  --     card (s + a) = if a ∈ s then card s else card s + 1
   mem_toList_iff {s : S α} : ∀ (a : α), a ∈ s ↔ a ∈ toList s
   -- fold_empty : ∀ {β : Type u} (f : β → α → β) (init : β), fold (∅ : S α) init f = init
   fold_mem : ∀ {β : Type u} (f : β → α → β) [FoldCommutative f] (init : β) {s : S α} (a : α),

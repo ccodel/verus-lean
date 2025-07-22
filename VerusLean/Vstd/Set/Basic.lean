@@ -34,18 +34,6 @@ theorem ext_eq_trans {s₁ s₂ s₃ : Set α} : ext_eq s₁ s₂ → ext_eq s�
   intro h₁ h₂ a
   exact Iff.trans (h₁ a) (h₂ a)
 
-/-
--- Didn't see they are already proved!
-theorem ext_eq_symm {s₁ s₂ : Set α} (h : ext_eq s₁ s₂) : ext_eq s₂ s₁ := by
-  constructor
-  · intro x h'; exact h.2 _ h'
-  · intro x h'; exact h.1 _ h'
-
-theorem ext_eq_trans {s₁ s₂ s₃ : Set α} (h₁ : ext_eq s₁ s₂) (h₂ : ext_eq s₂ s₃) : ext_eq s₁ s₃ := by
-  constructor
-  · intro x h; exact h₂.1 _ (h₁.1 _ h)
-  · intro x h; exact h₁.2 _ (h₂.2 _ h) -/
-
 /-! # empty -/
 
 @[simp]
@@ -278,25 +266,25 @@ theorem insert_eq_insert_notation (a : α) (s : Set α) : insert s a = s + a := 
 
 -- set_option trace.Meta.Tactic.simp true
 @[simp]
-theorem insert_empty (x : α) : ext_eq (insert (∅ : Set α) x) {x} := by
-  simp only [ext_eq_iff, mem_insert_iff, not_mem_empty, or_false, mem_singleton_iff, implies_true]
+theorem insert_empty (x : α) : ext_eq ((∅ : Set α) + x) {x} := by
+  simp only [ext_eq_iff, mem_insert_iff, not_mem_empty, or_false,
+    mem_singleton_iff, implies_true]
 
 -- Mathlib name `mem_insert`
 @[simp]
-theorem mem_insert_self (a : α) (s : Set α) : a ∈ (insert s a) := by
+theorem mem_insert_self (a : α) (s : Set α) : a ∈ (s + a) := by
   simp only [mem_insert_iff, true_or]
 
-theorem mem_insert_of_mem {b : α} {s : Set α} (h : b ∈ s) (a : α) : b ∈ (insert s a) := by
+theorem mem_insert_of_mem {b : α} {s : Set α} (h : b ∈ s) (a : α) : b ∈ (s + a) := by
   simp only [mem_insert_iff, h, or_true]
 
 @[simp]
-theorem insert_insert_self (a : α) (s : Set α) : ext_eq (insert (insert s a) a) (insert s a) := by
+theorem insert_insert_self (a : α) (s : Set α) : ext_eq (s + a + a) (s + a) := by
   simp only [ext_eq_iff, mem_insert_iff, or_self_left, implies_true]
 
 @[simp]
 theorem insert_remove_of_mem {a : α} {s : Set α} (h : a ∈ s)
-  : ext_eq (insert (remove s a) a) s := by
-    -- : ext_eq (insert (remove s a) a) s := by
+    : ext_eq (s - a + a) s := by
   simp only [ext_eq_iff, mem_insert_iff, mem_remove_iff, ne_eq]
   intro x
   constructor
@@ -307,16 +295,16 @@ theorem insert_remove_of_mem {a : α} {s : Set α} (h : a ∈ s)
     · exact Or.inl h_eq
     · exact Or.inr ⟨h_eq, h_mem⟩
 
-theorem insert_insert_comm (a b : α) (s : Set α) : ext_eq (insert (insert s a) b) (insert (insert s b) a) := by
+theorem insert_insert_comm (a b : α) (s : Set α) : ext_eq (s + a + b) (s + b + a) := by
   simp only [ext_eq_iff, mem_insert_iff]
   intro x
   rw [← or_assoc, @or_comm (x = b) (x = a), or_assoc]
 
-theorem insert_union_comm (a : α) (s₁ s₂ : Set α) : ext_eq ((insert s₁ a) ∪ s₂) (insert (s₁ ∪ s₂) a) := by
+theorem insert_union_comm (a : α) (s₁ s₂ : Set α) : ext_eq ((s₁ + a) ∪ s₂) ((s₁ ∪ s₂) + a) := by
   rw [ext_eq_iff]; intro x
   simp only [mem_union_iff, mem_insert_iff, or_assoc]
 
-theorem insert_eq_union_singleton (a : α) (s : Set α) : ext_eq (insert s a) (s ∪ {a}) := by
+theorem insert_eq_union_singleton (a : α) (s : Set α) : ext_eq (s + a) (s ∪ {a}) := by
   rw [ext_eq_iff]; intro x
   simp only [mem_insert_iff, mem_union_iff, mem_singleton_iff, or_comm]
 
@@ -332,18 +320,17 @@ variable [DecidableEq α]
 theorem remove_eq_remove_notation (a : α) (s : Set α) : remove s a = s - a := rfl
 
 @[simp]
-theorem remove_empty (a : α) : ext_eq (remove (∅ : Set α) a) ∅ := by
+theorem remove_empty (a : α) : ext_eq ((∅ : Set α) - a) ∅ := by
   rw [ext_eq_iff]; intro x
   simp only [mem_remove_iff, ne_eq, not_mem_empty, and_false]
 
 @[simp]
-theorem remove_singleton_self (a : α) : ext_eq (remove ({a} : Set α) a) ∅ := by
+theorem remove_singleton_self (a : α) : ext_eq (({a} : Set α) - a) ∅ := by
   rw [ext_eq_iff]; intro x
   simp only [mem_remove_iff, ne_eq, mem_singleton_iff, not_and_self, not_mem_empty]
 
 @[simp]
-theorem remove_singleton_eq_empty_iff (a b : α)
-    : ext_eq (remove ({a} : Set α) b) ∅ ↔ a = b := by
+theorem remove_singleton_eq_empty_iff (a b : α) : ext_eq (({a} : Set α) - b) ∅ ↔ a = b := by
   constructor
   · intro h
     have h_iff := ext_eq_iff.mp h
@@ -357,10 +344,10 @@ theorem remove_singleton_eq_empty_iff (a b : α)
     simp only [remove_singleton_self]
 
 @[simp]
-theorem not_mem_remove_self (a : α) (s : Set α) : a ∉ remove s a := by
+theorem not_mem_remove_self (a : α) (s : Set α) : a ∉ s - a := by
   simp only [mem_remove_iff, ne_eq, not_true_eq_false, false_and, not_false_eq_true]
 
-theorem not_mem_remove_iff {a b : α} {s : Set α} : b ∉ (remove s a) ↔ b = a ∨ b ∉ s := by
+theorem not_mem_remove_iff {a b : α} {s : Set α} : b ∉ (s - a) ↔ b = a ∨ b ∉ s := by
   simp only [mem_remove_iff, ne_eq, not_and]
   constructor
   · intro h_imp
@@ -371,7 +358,7 @@ theorem not_mem_remove_iff {a b : α} {s : Set α} : b ∉ (remove s a) ↔ b = 
     · simp only [not_true_eq_false, false_implies]
     · exact fun _ => h_mem
 
-theorem remove_of_not_mem {a : α} {s : Set α} (h : a ∉ s) : ext_eq (remove s a) s := by
+theorem remove_of_not_mem {a : α} {s : Set α} (h : a ∉ s) : ext_eq (s - a) s := by
   simp only [ext_eq_iff, mem_remove_iff]
   intro x
   constructor
@@ -385,12 +372,12 @@ theorem remove_of_not_mem {a : α} {s : Set α} (h : a ∉ s) : ext_eq (remove s
     exact ⟨hne, hs⟩
 
 @[simp]
-theorem remove_remove_self (a : α) (s : Set α) : ext_eq (remove (remove s a) a) (remove s a) := by
+theorem remove_remove_self (a : α) (s : Set α) : ext_eq (s - a - a) (s - a) := by
   rw [ext_eq_iff]; intro x
   simp only [mem_remove_iff, ne_eq, and_self_left]
 
-theorem remove_eq_sdiff_singleton (a : α) (s : Set α) :
-    ext_eq (remove s a) (s \ {a}) := by
+theorem sdiff_singleton_eq_remove (a : α) (s : Set α)
+    : ext_eq (s \ {a}) (s - a) := by
   rw [ext_eq_iff]; intro x
   simp only [mem_remove_iff, ne_eq, mem_sdiff_iff, mem_singleton_iff, and_comm]
 
@@ -496,13 +483,11 @@ end filter /- section -/
 
 section map
 
-variable (α : Type u) (β : Type u) (γ : Type u)
-
 theorem map_eq_of_ext_eq (f : α → β) (s₁ s₂ : Set α)
-    : ext_eq s₁ s₂ → ext_eq (f <$> s₁) (f <$> s₂) := by
-  rw [ext_eq_iff, ext_eq_iff]
+    : ext_eq s₁ s₂ → ext_eq (s₁.map f) (s₂.map f) := by
+  simp [ext_eq_iff]
   intro h
-  simp only [mem_map_iff]
+  simp only [mem_map_iff, exists_eq_left]
   intro x
   constructor
   · rintro ⟨x, hx, rfl⟩
@@ -510,66 +495,52 @@ theorem map_eq_of_ext_eq (f : α → β) (s₁ s₂ : Set α)
   · rintro ⟨x, hx, rfl⟩
     exact ⟨x, (h x).2 hx, rfl⟩
 
+theorem functor_map_eq_of_ext_eq {α β : Type u} (f : α → β) (s₁ s₂ : Set α)
+    : ext_eq s₁ s₂ → ext_eq (f <$> s₁) (f <$> s₂) := by
+  apply map_eq_of_ext_eq
+
+-- TODO Might want to use `ext_eq` instead of `=` here, because otherwise we break the API
 @[simp]
-theorem map_empty (f : α → β) : ext_eq (f <$> (∅ : Set α)) ∅ := by
-  rw [ext_eq_iff]; intro x
-  simp only [mem_map_iff, mem_empty_iff_false, false_and, exists_false]
+theorem map_empty (f : α → β) : ((∅ : Set α).map f) = ∅ := by
+  simp [map, empty]; rfl
 
 theorem map_map (f : α → β) (g : β → γ) (s : Set α)
-    : g <$> (f <$> s) = (g ∘ f) <$> s :=
-  Functor.map_map f g s
+    : (s.map f).map g = s.map (g ∘ f) := by
+  simp [map]
 
 @[simp]
-theorem map_singleton (f : α → β) (a : α) : ext_eq (f <$> ({a} : Set α)) ({f a} : Set β) := by
-  rw [ext_eq_iff]; intro x
-  simp only [mem_map_iff, mem_singleton_iff, exists_eq_left]
-  exact eq_comm
+theorem map_singleton (f : α → β) (a : α) : (({a} : Set α).map f) = ({f a} : Set β) := by
+  -- TODO breaks API
+  simp [map, singleton]; rfl
 
 theorem map_union (f : α → β) (s₁ s₂ : Set α)
-    : ext_eq (f <$> (s₁ ∪ s₂)) ((f <$> s₁) ∪ (f <$> s₂)) := by
+    : ext_eq ((s₁ ∪ s₂).map f) ((s₁.map f) ∪ (s₂.map f)) := by
   rw [ext_eq_iff]; intro x
   simp only [mem_map_iff, mem_union_iff, or_and_right, exists_or]
 
 theorem map_ofList (f : α → β) (l : List α)
-    : ext_eq (f <$> (ofList l : Set α)) (ofList (l.map f)) := by
+    : ext_eq ((ofList l : Set α).map f) (ofList (l.map f)) := by
   rw [ext_eq_iff]; intro x
   simp only [mem_map_iff, mem_ofList_iff, List.mem_map]
 
 variable [DecidableEq α] [DecidableEq β]
 
 theorem map_inter (f : α → β) (S₁ S₂ : Set α)
-    : f <$> (S₁ ∩ S₂) ⊆ (f <$> S₁) ∩ (f <$> S₂) := by
+    : (S₁ ∩ S₂).map f ⊆ (S₁.map f) ∩ (S₂.map f) := by
   simp [subset_iff, mem_map_iff, mem_inter_iff]
   rintro b a ha₁ ha₂ rfl
   exact ⟨⟨a, ha₁, rfl⟩, ⟨a, ha₂, rfl⟩⟩
 
--- TODO: simplify the proof
 theorem map_insert (f : α → β) (a : α) (s : Set α)
-    : ext_eq (f <$> (insert s a)) (insert (f <$> s) (f a)) := by
-  rw [ext_eq_iff]; intro x
-  have h₀ : ext_eq (s.insert a) (s ∪ {a}) := insert_eq_union_singleton a s
-  have h₁ : ext_eq ((f <$> s).insert (f a)) (f <$> s ∪ {f a}) := insert_eq_union_singleton (f a) (f <$> s)
-  have h₂ : ext_eq (f <$> (s ∪ {a})) (f <$> s ∪ f <$> {a}) := map_union α β f s {a}
-  have h₃ : ext_eq (f <$> {a}) ({f a}) := map_singleton α β f a
+    : ext_eq ((s + a).map f) ((s.map f) + (f a)) := by
+  simp only [ext_eq_iff, mem_map_iff, mem_insert_iff, exists_eq_or_imp]
+  intro x
   constructor
-  . intro h
-    rw [ext_eq_iff.1 h₁]
-    rw [mem_union_iff]
-    rw [←(ext_eq_iff.1 h₃)]
-    rw [←mem_union_iff]
-    rw [←(ext_eq_iff.1 h₂)]
-    have := map_eq_of_ext_eq α β f (s.insert a) (s ∪ {a}) h₀
-    rw [←(ext_eq_iff.1 this)]
-    exact h
-  . intro h
-    rw [ext_eq_iff.1 h₁] at h
-    rw [mem_union_iff] at h
-    rw [←(ext_eq_iff.1 h₃)] at h
-    rw [←mem_union_iff] at h
-    rw [←(ext_eq_iff.1 h₂)] at h
-    have := map_eq_of_ext_eq α β f (s.insert a) (s ∪ {a}) h₀
-    rw [ext_eq_iff.1 this]
-    exact h
+  all_goals (
+    rintro (rfl | h)
+    · exact Or.inl rfl
+    · exact Or.inr h
+  )
 
 end map /- section -/
 
@@ -622,13 +593,13 @@ theorem card_eq_zero_iff (s : Set α) : card s = 0 ↔ ext_eq s ∅ := by
         specialize h_all_not_mem x
         contradiction
 
+@[simp]
 theorem card_singleton (a : α) : card ({a} : Set α) = 1 := by
-  change card (insert ∅ a : Set α) = 1
-  rw [card_insert]
-  simp
+  change card ((∅ : Set α) + a) = 1
+  simp [card_insert]
 
 @[simp]
-theorem card_pos_iff_ne_empty {s : Set α} : 0 < card s ↔ Not (ext_eq s ∅) := by
+theorem card_pos_iff_ne_empty {s : Set α} : 0 < card s ↔ ¬(ext_eq s ∅) := by
   -- TODO: Probably a one-line proof via `mt` or something similar
   constructor
   · intro h h_con
@@ -638,43 +609,6 @@ theorem card_pos_iff_ne_empty {s : Set α} : 0 < card s ↔ Not (ext_eq s ∅) :
     intro h h_con
     have := (card_eq_zero_iff (s := s)).mp h_con
     contradiction
-
-theorem card_remove (a : α) (s : Set α) :
-    card (s.remove a) = if a ∈ s then card s - 1 else card s := by
-  match s with
-  | mk l =>
-    induction l with
-    | nil => simp [remove, card, mem_iff, not_mem_empty]
-    | cons x xs ih => -- Inductive Step: The list is `x :: xs`
-      simp [remove] at ih
-      by_cases h_eq : x = a
-      · -- Case 1: The head of the list `x` IS the element `a` to be removed.
-        subst h_eq
-        simp [remove, mem_iff]
-        rw [ih] -- Use the induction hypothesis on the LHS
-        -- split on `x ∈ xs`
-        split <;> simp_all [mem_iff, card]
-      · -- Case 2: The head of the list `x` is NOT the element `a`.
-        simp [remove, mem_iff, h_eq]
-        simp [card, ih, h_eq]
-        have hf : (a = x) ↔ False := by
-          simp only [ne_comm] at h_eq
-          simp only [←iff_false] at h_eq
-          exact h_eq
-        -- split on `x ∈ xs`
-        split <;> rename_i hx
-        <;> simp [mem_iff, hf]
-        split <;> rename_i hc
-        . have : xs ≠ [] := by
-            rintro rfl; simp_all
-          have h_card : card (mk xs) ≥ 1 := card_ge_one_of_ne_nil this
-          simp [Nat.sub_add_cancel h_card]
-        . rfl
-
--- CZ: Maybe worth proving this so we can prove `card_disjoint` and `card_union`?
--- theorem card_eq_of_ext_eq [DecidableEq α] {s₁ s₂ : Set α}
---     (h : ext_eq s₁ s₂) : s₁.card = s₂.card := by
---   sorry
 
 end card /- section -/
 

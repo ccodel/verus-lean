@@ -1,5 +1,156 @@
 import VerusLean.Vstd.Set
+
+namespace Vstd
+
+open Set
+
+inductive Map (α : Type u) (β : Type v)
+  | mk (elems : Set (α × β))
+
+namespace Map
+
+variable {α : Type u} {β : Type v} {γ : Type w}
+
+-- SHIM
+def empty : Map α β :=
+  mk ∅
+
+instance instEmptyCollection : EmptyCollection (Map α β) where
+  emptyCollection := empty
+
+instance instInhabited : Inhabited (Map α β) where
+  default := ∅
+
+-- SHIM
+def singleton (a : α) (b : β) : Map α β :=
+  mk {(a, b)}
+
+instance instSingleton : Singleton (α × β) (Map α β) where
+  singleton := fun p => singleton p.1 p.2
+
+def fromSet (s : Set α) (f : α → β) : Map α β :=
+  mk <| s.map (fun a => (a, f a))
+
+-- SHIM
+def keys (m : Map α β) : Set α :=
+  match m with
+  | mk elems => elems.map Prod.fst
+
+-- SHIM
+def values (m : Map α β) : Set β :=
+  match m with
+  | mk elems => elems.map Prod.snd
+
+/-
+
+-- CC: TODO insert a `bmem` section?
+
+-/
+
+section get
+
+-- CC: Ideally, we don't need `DecidableEq β` or `Inhabited` here, but I'm lazy atm
+variable [DecidableEq α] [DecidableEq β] [Inhabited α] [Inhabited β]
+
+-- SHIM
+def get? (m : Map α β) (k : α) : Option β :=
+  match m with
+  | mk elems =>
+    -- TODO: Not very efficient, but works for now
+    if k ∈ m.keys then
+      some <| Prod.snd <| Set.choose <| elems.filter (·.1 = k)
+    else
+      none
+
+-- SHIM
+def get (m : Map α β) (k : α) (h : k ∈ keys m) : β :=
+  match m with
+  | mk elems =>
+    Prod.snd <| Set.choose <| elems.filter (·.1 = k)
+
+-- SHIM
+def get! (m : Map α β) (k : α) : β :=
+  match get? m k with
+  | some v => v
+  | none => default
+
+instance instGetElem : GetElem (Map α β) α β (fun m k => k ∈ keys m) where
+  getElem := get
+
+instance instGetElem? : GetElem? (Map α β) α β (fun m k => k ∈ keys m) where
+  getElem? := get?
+
+end get /- section -/
+
+-- CC: Remove these later? I'm lazy
+variable [DecidableEq α] [DecidableEq β] [Inhabited α] [Inhabited β]
+
+def ext_eq (m₁ m₂ : Map α β) : Prop :=
+  ∀ (k : α), k ∈ keys m₁ ↔ k ∈ keys m₂ ∧ m₁[k]? = m₂[k]?
+
+-- SHIM
+def insert (m : Map α β) (k : α) (v : β) : Map α β :=
+  match m with
+  | mk elems =>
+    mk <|
+      if k ∈ keys m then
+        let elems' := elems.filter (fun p => p.1 ≠ k)
+        elems' + (k, v)
+      else
+        elems + (k, v)
+
+-- SHIM
+def remove (m : Map α β) (k : α) : Map α β :=
+  match m with
+  | mk elems =>
+    mk <| elems.filter (fun p => p.1 ≠ k)
+
+-- CC TODO: What's the best name to use here? Verus uses "len"
+def size (m : Map α β) : Nat :=
+  match m with
+  | mk elems => card elems
+
+
+/-! # lemmas -/
+
+set_option linter.unusedSectionVars false
+
+-- SHIM
+@[simp]
+theorem keys_empty : keys (∅ : Map α β) = ∅ := by
+  simp [keys, empty]
+
+-- SHIM
+@[simp]
+theorem values_empty : values (∅ : Map α β) = ∅ := by
+  simp [values, empty]
+
+-- SHIM?
+@[simp]
+theorem keys_singleton (a : α) (b : β) : keys ({(a, b)} : Map α β) = {a} := by
+  simp [keys, singleton]
+
+-- SHIM?
+@[simp]
+theorem values_singleton (a : α) (b : β) : values ({(a, b)} : Map α β) = {b} := by
+  simp [values, singleton]
+
+-- SHIM
+theorem keys_insert (m : Map α β) (k : α) (v : β)
+    : keys (insert m k v) = if k ∈ keys m then keys m else keys m + k := by
+  simp [insert]
+  by_cases h : k ∈ keys m
+  · simp [h]
+    stop
+    done
+  · stop
+    done
+  done
+
+end Map
+
 #exit
+
 namespace Vstd
 
 /--
@@ -14,23 +165,10 @@ class VMapLikeF (M : Type u → Type v → Type w)
   total : (α → β) → M α β
   new : (α → Bool) → (α → β) → M α β
   fromSet : (S_key α) → (α → β) → M α β
-  -- keys : M α β → Set α
-  -- values : M α β → Set β
-  keys : M α β → S_key α
-  values : M α β → S_val β
-  memKeys [DecidableEq α] : M α β → α → Prop :=
-    fun m k => k ∈ keys m
-  memValues : M α β → β → Prop :=
-    fun m v => v ∈ values m
   -- CZ: how does implementation guarantee this is decidable?
   -- memKeys [DecidableEq α] [Decidable (k ∈ keys m)] : M α β → α → Bool
     -- := fun m k => decide (k ∈ keys m)
   -- memValues : M α β → β → Bool
-  get? [DecidableEq α] : M α β → α → Option β
-  get [DecidableEq α] [Inhabited β] : (m : M α β) → (k : α) → (h : memKeys m k) → β
-  get! [DecidableEq α] [Inhabited β] : (m : M α β) → (k : α) → β
-  insert : (m : M α β) → (k : α) → (v : β) → M α β
-  remove : (m : M α β) → (k : α) → M α β
   removeKeys : (m : M α β) → (ks : Set α) → M α β
   restrict : (m : M α β) → (ks : Set α) → M α β
   isEqualOnKey [DecidableEq α] [DecidableEq β] : (m₁ m₂ : M α β) → (k : α) → Bool
