@@ -212,7 +212,7 @@ inductive UnaryOp where
 
     In Verus, this is called a `Field`, and is defined under `UnaryOpr`.
   -/
-  | Proj (dt : Ident) (field : String)
+  | Proj (dt : Ident) (variant : String) (field : String)
   /-
     A projection out of a tuple. For example `t.2.1`
 
@@ -325,6 +325,8 @@ inductive Exp where
   | If (cond branch₁ branch₂ : Exp)
   | Bind (bind : Bind) (exp : Exp)
   | ArrayLiteral (elems : List Exp)
+  /-- MatchBlock wraps the simplified if-else chain but preserves original match info for Lean -/
+  | MatchBlock (scrutinee : Exp × Typ) (body : Exp)
 deriving Repr, Inhabited, Hashable
 
 end /- mutual -/
@@ -576,6 +578,7 @@ def Exp.height : Exp → Nat
   | .If c b₁ b₂ => 1 + max c.height (max b₁.height b₂.height)
   | .Bind _ e => 1 + e.height
   | .ArrayLiteral es => 1 + es.attach.foldl (init := 0) (λ acc ⟨e, _⟩ => max acc e.height)
+  | .MatchBlock (scrutinee, _) body => 1 + max scrutinee.height body.height
 
 /--
   Extracts the identifier in the expression.

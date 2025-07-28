@@ -101,7 +101,7 @@ def UnaryOp.pp (op : UnaryOp) : String :=
   match op with
   | .Not => "!"
   | .BitNot _ => "!"
-  | .Proj dt field => s!"{dt}.{field}"
+  | .Proj dt variant field => s!"{dt}.{field} of {variant}"
   | .IsVariant dt variant => s!"is {dt}.{variant}: "
   | .Box t => t.pp
   | .Unbox t => t.pp
@@ -183,6 +183,10 @@ partial def Exp.pp (e : Exp) : String :=
     let es := es.map Exp.pp
     let es := String.intercalate ", " es
     s!"[{es}]"
+  | .MatchBlock (scrutinee, _) body =>
+    let scrutinee := Exp.pp scrutinee
+    let body := Exp.pp body
+    s!"match {scrutinee} BEGIN {body} END"
 
 
 end /- mutual -/

@@ -515,8 +515,10 @@ def UnaryOp.oprFromJson (j : Json) : m UnaryOp := do
   | ("Field", obj) =>
     try
       let dt ← pathedNameFromJson (pathKey := "Path") <| ← obj.getObjValM "datatype"
+      let variant ← obj.getStrUnderKeyM "variant"
       let field ← obj.getStrUnderKeyM "field"
-      return .Proj dt field
+      -- dbg_trace s!"[Elab.lean]: Proj: {dt} {variant} {field}"
+      return .Proj dt variant field
     catch _ => -- see if it's a tuple
       try
         let dt ← obj.getObjValM "datatype"
@@ -526,9 +528,20 @@ def UnaryOp.oprFromJson (j : Json) : m UnaryOp := do
       catch _ =>
         throw s!"[UnaryOp.oprFromJson?]: Encounter Field, neither Path nor Tuple is found, got {obj}"
   | ("IsVariant", obj) =>
-    let dt ← pathedNameFromJson (pathKey := "Path") <| ← obj.getObjValM "datatype"
-    let variant ← obj.getStrUnderKeyM "variant"
-    return .IsVariant dt variant
+    try
+      let dt ← pathedNameFromJson (pathKey := "Path") <| ← obj.getObjValM "datatype"
+      let variant ← obj.getStrUnderKeyM "variant"
+      return .IsVariant dt variant
+    catch _ => -- see if it's a tuple
+      try
+        let dt ← obj.getObjValM "datatype"
+        let size ← dt.getNatUnderKeyM "Tuple"
+        let field := match (← obj.getStrUnderKeyM "variant").splitOn.reverse with
+          | x :: _ => x.toNat!
+          | _ => 0
+        return .Proj' size field
+      catch _ =>
+        throw s!"[UnaryOp.oprFromJson?]: Encounter IsVariant, neither Path nor Tuple is found, got {obj}"
   | ("Box", obj) =>
     let typ ← Typ.fromJson obj
     return .Box typ
@@ -651,7 +664,7 @@ partial def Bind.fromJson (j : Json) : VParser Bind := do
 
 partial def Exp.fromJson (j : Json) : VParser Exp := do
   -- Expect that exactly one of the enumerated options will be true
-  match ← j["Const", "Var", "VarLoc", "Call", "CallLambda", "Ctor", "Unary", "UnaryOpr", "Binary", "BinaryOpr", "If", "Bind", "ArrayLiteral"] with
+  match ← j["Const", "Var", "VarLoc", "Call", "CallLambda", "Ctor", "Unary", "UnaryOpr", "Binary", "BinaryOpr", "If", "Bind", "ArrayLiteral", "MatchBlock"] with
   | ("Const", obj) =>
     return .Const <| ← Const.fromJson obj
 
@@ -726,10 +739,13 @@ partial def Exp.fromJson (j : Json) : VParser Exp := do
   | ("UnaryOpr", obj) =>
     -- A complex unary object should be an array with an op and a data element
     let ⟨arr, _⟩ ← obj.getArrWithSizeGeM 2
+    -- dbg_trace s!"UnaryOpr arr: {arr}"
     let op  ← UnaryOp.oprFromJson arr[0]
+    -- dbg_trace s!"UnaryOpr op: {op}"
     let data ← fromJsonSpanned arr[1] Exp.fromJson
 
     -- Erase (Un)Box operations, just return the base type or expression
+    -- dbg_trace s!"UnaryOpr data: {data}"
     match op with
     | .Box _ | .Unbox _ => return data
     | _ => return .Unary op data
@@ -765,6 +781,18 @@ partial def Exp.fromJson (j : Json) : VParser Exp := do
     let arr ← obj.getArrM
     let elems ← arr.mapM (fromJsonSpanned · Exp.fromJson)
     return .ArrayLiteral elems.toList
+
+  | ("MatchBlock", obj) =>
+    let scrutineeObj ← obj.getObjValM "scrutinee"
+    let scrutinee ← fromJsonSpanned scrutineeObj Exp.fromJson
+    let typ ← Typ.fromJson <| ← scrutineeObj.getObjValM "typ"
+    dbg_trace s!"MatchBlock scrutinee: {scrutinee}, type: {typ}"
+    let bodyObj ← obj.getObjValM "simplified_body"
+    dbg_trace s!"MatchBlock bodyObj"
+    -- let variant ← bodyObj.getStrUnderKeyM "variant"
+    let body ← fromJsonSpanned bodyObj Exp.fromJson
+    dbg_trace s!"MatchBlock body: {body}"
+    return .MatchBlock (scrutinee, typ) body
 
   | s => throw s!"[ExpX.fromJson?]: Expected an Exp branch string, got {s}"
 
