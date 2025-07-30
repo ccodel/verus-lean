@@ -402,11 +402,11 @@ def IntRange.fromJson (j : Json) : m IntRange := do
     | .error _ => throw s!"unsupported IntRange object: {j}"
     | .ok ("U", obj) =>
       match obj.getNat? with
-      | .ok width => return .U width
+      | .ok width => return .U (UInt32.ofNat width)
       | .error e => throw s!"[IntRange.fromJson?]: {e}"
     | .ok ("I", obj) =>
       match obj.getNat? with
-      | .ok width => return .I width
+      | .ok width => return .I (UInt32.ofNat width)
       | .error e => throw s!"[IntRange.fromJson?]: {e}"
     | _ => throw s!"[IntRange.fromJson?]: Expected one of \{ U, I }, got {j}"
     -- throw s!"Unexpected IntRange: {j}"
