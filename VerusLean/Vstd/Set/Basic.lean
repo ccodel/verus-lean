@@ -17,7 +17,7 @@ theorem mem_or_not_mem (a : α) (s : Set α) : a ∈ s ∨ a ∉ s := by
 
 @[refl]
 theorem ext_eq_refl (s : Set α) : ext_eq s s := by
-  simp only [ext_eq_iff, implies_true, true_and]
+  simp only [ext_eq_iff, implies_true]
 
 @[symm]
 theorem ext_eq_comm {s₁ s₂ : Set α} : ext_eq s₁ s₂ ↔ ext_eq s₂ s₁ := by
@@ -391,7 +391,7 @@ variable [DecidableEq α]
 
 theorem disjoint_iff_inter_eq_empty {s₁ s₂ : Set α} :
     disjoint s₁ s₂ ↔ ext_eq (s₁ ∩ s₂) ∅ := by
-  simp only [disjoint_iff, mem_inter_iff, not_and]
+  simp only [disjoint_iff]
 
 theorem disjoint_comm {s₁ s₂ : Set α} : disjoint s₁ s₂ ↔ disjoint s₂ s₁ := by
   simp only [disjoint_iff]
@@ -464,7 +464,7 @@ theorem filter_filter (p q : α → Bool) (s : Set α) :
 theorem filter_filter_comm (p q : α → Bool) (s : Set α) :
     ext_eq (filter (filter s p) q) (filter (filter s q) p) := by
   rw [ext_eq_iff]; intro x
-  simp only [filter_filter, mem_filter_iff, and_assoc, and_comm (a := p x) (b := q x)]
+  simp only [mem_filter_iff, and_assoc, and_comm (a := p x) (b := q x)]
 
 theorem filter_subset_filter_of_subset {s₁ s₂ : Set α}
     : s₁ ⊆ s₂ → ∀ (p : α → Bool), filter s₁ p ⊆ filter s₂ p := by
@@ -487,7 +487,7 @@ theorem map_eq_of_ext_eq (f : α → β) (s₁ s₂ : Set α)
     : ext_eq s₁ s₂ → ext_eq (s₁.map f) (s₂.map f) := by
   simp [ext_eq_iff]
   intro h
-  simp only [mem_map_iff, exists_eq_left]
+  simp only [mem_map_iff]
   intro x
   constructor
   · rintro ⟨x, hx, rfl⟩

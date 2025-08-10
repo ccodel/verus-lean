@@ -581,9 +581,9 @@ theorem fold_insert [DecidableEq α] (s : Set α) (a : α) (f : β → α → β
     : fold (s + a) init f = f (fold s init f) a := by
   match s with
   | mk l =>
-    simp [HAdd.hAdd, insert, fold]
+    simp [insert, fold]
     induction l generalizing init with
-    | nil => simp [insert, fold]
+    | nil => simp
     | cons x xs ih =>
       stop
       by_cases h_ax : a = x

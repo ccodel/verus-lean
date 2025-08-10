@@ -786,12 +786,12 @@ partial def Exp.fromJson (j : Json) : VParser Exp := do
     let scrutineeObj ← obj.getObjValM "scrutinee"
     let scrutinee ← fromJsonSpanned scrutineeObj Exp.fromJson
     let typ ← Typ.fromJson <| ← scrutineeObj.getObjValM "typ"
-    dbg_trace s!"MatchBlock scrutinee: {scrutinee}, type: {typ}"
-    let bodyObj ← obj.getObjValM "simplified_body"
-    dbg_trace s!"MatchBlock bodyObj"
+    -- dbg_trace s!"MatchBlock scrutinee: {scrutinee}, type: {typ}"
+    let bodyObj ← obj.getObjValM "body"
+    -- dbg_trace s!"MatchBlock bodyObj"
     -- let variant ← bodyObj.getStrUnderKeyM "variant"
     let body ← fromJsonSpanned bodyObj Exp.fromJson
-    dbg_trace s!"MatchBlock body: {body}"
+    -- dbg_trace s!"MatchBlock body: {body}"
     return .MatchBlock (scrutinee, typ) body
 
   | s => throw s!"[ExpX.fromJson?]: Expected an Exp branch string, got {s}"

@@ -51,10 +51,15 @@ private def preludeString (nameSpace : String) := String.intercalate "\n" <|
   "",
   "open Vstd",
   "",
+  "noncomputable section",
+  "noncomputable def opaque_default {α : Type _} [Inhabited α] : α := Classical.choice ⟨default⟩",
+  "",
   "/- Prelude done. Place all declarations below. MAGIC COMMENT END. -/"
 ]
 
 private def postludeString (nameSpace : String) := String.intercalate "\n" <| [
+  "end /- noncomputable section -/",
+  "",
   s!"end {nameSpace} /- namespace -/",
   "",
   "end VerusLean",

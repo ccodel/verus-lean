@@ -208,9 +208,22 @@ def UnaryOp.toTerm (u : UnaryOp) (e : Term) : CoreM Term := do
     | .Char => let charIdent := mkIdent `Char; `(($e : $charIdent))
     | _ => `($e)
   | .Trigger => `($e) -- Ignore trigger information when constructing terms
-  | .Proj _ _ field =>
+  | .Proj dt variant field =>
+    dbg_trace s!"[Elab.lean]: UnaryOp.Proj: {dt} {variant} {field}"
+    -- UnaryOp.Proj: Matching.life Arthropod legs
+    let dt ← dt.toIdent
+    let variant ← variant.toIdent
     let field ← field.toIdent
+    let defaultIdent := mkIdent `opaque_default
     `($e.$field)
+    -- TODO: use dot notation if it is a structure,
+    -- use match expression if it is an enum variable
+    -- if isEnumVar then
+    --   `(match $e:term with
+    --   | $dt.$variant $field:ident .. => $field:ident
+    --   | _ => $defaultIdent)
+    -- else
+    --   `($e.$field)
   | .Proj' size field =>
     if field ≥ size then
       throwError "Projection field {field} is out of bounds for a tuple of size {size}"
@@ -319,9 +332,7 @@ partial def collectFieldsFromBind (exp : Exp) : CoreM (Array Lean.Ident) := do
 
 -- Collect match arms from a chain of If expressions with IsVariant conditions
 partial def collectMatchArmsFromIfChain (exp : Exp) : CoreM (Array (Term × Term)) := do
-  dbg_trace s!""
-  dbg_trace s!"[Elab.lean]: collectMatchArmsFromIfChain: {exp}"
-  dbg_trace s!""
+  -- dbg_trace s!"[Elab.lean]: collectMatchArmsFromIfChain: {exp}"
 
   let rec walkIfChain (current : Exp) (arms : Array (Term × Term)) : CoreM (Array (Term × Term)) := do
     match current with
@@ -331,51 +342,73 @@ partial def collectMatchArmsFromIfChain (exp : Exp) : CoreM (Array (Term × Term
       let variantIdent ← variant.toIdent
       let fields ← match thenBranch with
         | .MatchBlock _ body => collectFieldsFromBind body
-        | _ => panic! "Expected MatchBlock in thenBranch"
+        | _ => throwError "Expected MatchBlock in thenBranch"
 
-      let pattern ← `($dtIdent.$variantIdent $fields:ident*)
-      dbg_trace s!"[Elab.lean]: Match pattern: {pattern}"
-      dbg_trace (← Lean.PrettyPrinter.formatTerm pattern)
+      let pattern ←
+        if fields.isEmpty then `($dtIdent.$variantIdent ..)
+                          else `($dtIdent.$variantIdent $fields:ident*)
+
+      -- dbg_trace s!"[Elab.lean]: Match pattern: {pattern}"
+      -- dbg_trace (← Lean.PrettyPrinter.formatTerm pattern)
 
       let body ← match thenBranch with
         | .MatchBlock _ body => (skipLetBindings body).toTerm
-        | _ => panic! "Expected MatchBlock in thenBranch"
-      dbg_trace s!"[Elab.lean]: 1Match body: {body}"
-      dbg_trace (← Lean.PrettyPrinter.formatTerm body)
+        | _ => throwError "Expected MatchBlock in thenBranch"
+      -- dbg_trace s!"[Elab.lean]: Match body: {body}"
+      -- dbg_trace (← Lean.PrettyPrinter.formatTerm body)
 
       let newArms := arms.push (pattern, body)
       walkIfChain elseBranch newArms
 
     | .If _ _ _ =>
       -- fallback case for other If expressions
-      panic! s!"[Elab.lean]: If case other than IsVariant not yet handled, likely because of the `is` operator, got: {current}"
+      dbg_trace s!"[Elab.lean]: If case other than IsVariant not yet handled, likely because of the `is` operator, got: {current}"
+      throwError s!"[Elab.lean]: If case other than IsVariant not yet handled, likely because of the `is` operator, got: {current}"
 
     | _ => -- Final case (should be a MatchBlock for the last variant)
+      -- dbg_trace s!"[Elab.lean]: Final case in If chain, should be a MatchBlock: {current}"
       let dtIdent ← match current with
         | .MatchBlock (_, typ) _ => Ident.toIdent typ.pp.toName
         | _ =>
           dbg_trace s!"[Elab.lean]: Current is not a MatchBlock: {current}"
-          panic! "Expected MatchBlock in final case"
-      let variantIdent ← match current with
+          throwError "Expected MatchBlock in final case"
+      -- dbg_trace s!"[Elab.lean]: dtIdent: {dtIdent}"
+
+      let variantIdent : Option Lean.Ident := match current with
         | .MatchBlock _ body => match body with
-          | .Bind (.Let _ _ (.Unary (.Proj _ variant _) _)) _ => variant.toIdent
-          | _ => panic! "Expected MatchBlock in final case"
-        | _ => panic! "Expected MatchBlock in final case"
+          | .Bind (.Let _ _ (.Unary (.Proj _ variant _) _)) _ =>
+            -- Convert string to Name then to Ident
+            some (mkIdent (Name.mkSimple variant))
+          | _ => none
+            -- dbg_trace s!"1 Expected MatchBlock in final case, got body: {body}"
+        | _ =>
+          dbg_trace "2 Expected MatchBlock in final case"
+          none
+      -- dbg_trace s!"[Elab.lean]: variantIdent: {variantIdent}"
 
-      let fields ← match current with
-        | .MatchBlock _ body => collectFieldsFromBind body
-        | _ => panic! "Expected MatchBlock in thenBranch"
-      dbg_trace s!"[Elab.lean]: Match fields: {fields}"
-
-      let pattern ← `($dtIdent.$variantIdent $fields:ident*)
-      dbg_trace s!"[Elab.lean]: Match pattern: {pattern}"
-      dbg_trace (← Lean.PrettyPrinter.formatTerm pattern)
+      let pattern : CoreM Term := do
+        if variantIdent.isNone then
+          String.toIdent "_"
+        else
+          -- dbg_trace s!"[Elab.lean]: Match pattern with variant"
+          let variantIdent := variantIdent.get!
+          let fields ← match current with
+            | .MatchBlock _ body => collectFieldsFromBind body
+            | _ =>
+              dbg_trace "3 Expected MatchBlock in thenBranch"
+              throwError "Expected MatchBlock in thenBranch"
+          -- dbg_trace s!"[Elab.lean]: Match fields: {fields}"
+          if fields.isEmpty then `($dtIdent.$variantIdent ..)
+                            else `($dtIdent.$variantIdent $fields:ident*)
+      let pattern ← pattern -- CZ: not sure how to combine this with the above line
+      -- dbg_trace s!"[Elab.lean]: Match pattern: {pattern}"
+      -- dbg_trace (← Lean.PrettyPrinter.formatTerm pattern)
 
       let body ← match current with
         | .MatchBlock _ body => (skipLetBindings body).toTerm
-        | _ => panic! "Expected MatchBlock in thenBranch"
-      dbg_trace s!"[Elab.lean]: Match body: {body}"
-      dbg_trace (← Lean.PrettyPrinter.formatTerm body)
+        | _ => throwError "Expected MatchBlock in thenBranch"
+      -- dbg_trace s!"[Elab.lean]: Match body: {body}"
+      -- dbg_trace (← Lean.PrettyPrinter.formatTerm body)
 
       return arms.push (pattern, body)
 
@@ -463,7 +496,7 @@ partial def Exp.toTerm (e : Exp) : CoreM Term := do
     `(($t:term))
 
   | .If cond b₁ b₂ =>
-    dbg_trace s!"[Elab.lean]: .If case - cond: {cond}"
+    -- dbg_trace s!"[Elab.lean]: .If case - cond: {cond}"
     -- Check if this is a match pattern (IsVariant condition with MatchBlock branches)
     match cond with
     | .Unary (UnaryOp.IsVariant dt variant) scrutinee =>
@@ -471,17 +504,17 @@ partial def Exp.toTerm (e : Exp) : CoreM Term := do
       try
         let matchArms ← collectMatchArmsFromIfChain e
         -- dbg_trace s!"[Elab.lean]: Collected {matchArms.size} match arms from if chain"
-        dbg_trace s!"[Elab.lean]: Match arms: {matchArms}"
+        -- dbg_trace s!"[Elab.lean]: Match arms: {matchArms}"
 
         -- Build proper match expression
         -- dbg_trace s!"[Elab.lean]: Generating match expression with {matchArms.size} arms"
         let scrutineeTerm ← scrutinee.toTerm
-        dbg_trace s!"[Elab.lean]: Scrutinee term: {scrutineeTerm}"
+        -- dbg_trace s!"[Elab.lean]: Scrutinee term: {scrutineeTerm}"
         let alts : Array (TSyntax ``matchAlt) ← matchArms.mapM fun (pattern, body) =>
           `(matchAltExpr| | $pattern => $body)
         `(match $scrutineeTerm:term with $alts:matchAlt*)
-      catch e =>
-        dbg_trace s!"[Elab.lean]: Error collecting match arms"
+      catch _ =>
+        dbg_trace s!"[Elab.lean]: .If case: Error collecting match arms"
         -- Fallback to the original MatchBlock translation
         let cond ← cond.toTerm
         let b₁ ← b₁.toTerm
@@ -489,7 +522,7 @@ partial def Exp.toTerm (e : Exp) : CoreM Term := do
         `(if $cond then $b₁ else $b₂)
     | _ =>
       -- Regular if-else (not a match pattern)
-      dbg_trace s!"[Elab.lean]: Regular if-else (not IsVariant)"
+      -- dbg_trace s!"[Elab.lean]: Regular if-else (not IsVariant)"
       let cond ← cond.toTerm
       let b₁ ← b₁.toTerm
       let b₂ ← b₂.toTerm
@@ -514,7 +547,7 @@ partial def Exp.toTerm (e : Exp) : CoreM Term := do
         `(matchAltExpr| | $pattern => $body)
       `(match $scrutineeTerm:term with $alts:matchAlt*)
     catch e =>
-      dbg_trace s!"[Elab.lean]: Error collecting match arms"
+      dbg_trace s!"[Elab.lean]: .MatchBlock case: Error collecting match arms"
       -- Fallback to the original MatchBlock translation
       body.toTerm
 /-   | .MatchBlock scrutinee body =>
