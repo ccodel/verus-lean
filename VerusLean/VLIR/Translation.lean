@@ -203,3 +203,7 @@ def VstdSyntaxTable : Std.HashMap Name (Name × (Lean.Ident → List Term → Co
     (String.toName "", translateSyntaxIndex)
   |>.insert (String.toName "Vstd.Map.spec_index")
     (String.toName "", translateSyntaxIndex)
+  |>.insert (String.toName "Vstd.Seq.index")
+    (String.toName "", translateSyntaxIndex)
+  |>.insert (String.toName "Vstd.Seq.spec_index")
+    (String.toName "", translateSyntaxIndex)
