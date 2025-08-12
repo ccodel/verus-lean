@@ -178,7 +178,7 @@ def ArithOp.toTerm (a : ArithOp) (lhs rhs : Term) : CoreM Term := do
   match a with
   | .Add => `($lhs + $rhs)
   | .Sub => `($lhs - $rhs)
-  | .Mul => `(($lhs) * ($rhs)) -- CZ: temp fix for operator precedence, when to add parentheses?
+  | .Mul => `($lhs * $rhs) -- CZ: temp fix for operator precedence, when to add parentheses?
   | .EuclideanDiv => `($lhs / $rhs)
   | .EuclideanMod => `($lhs % $rhs)
 

@@ -16,7 +16,7 @@ macro (name := byAuto) "auto?" : tactic => `(tactic|
     | trivial
     | rfl
     | assumption
-    | simp
+    -- | simp
     | omega
     | grind
   )
