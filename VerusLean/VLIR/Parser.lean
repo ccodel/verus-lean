@@ -1116,10 +1116,7 @@ partial def Decl.fromJson (j : Json) : VParser (Option Decl) := do
     -- A mutual declaration is a list of declarations, each of which
     -- is a `DeclType` object
     let declsArr ← declObj.getArrM
-    let decls ← declsArr.filterMapM (fun d => do
-      match ← Decl.fromJson d with
-      | none => return none
-      | some decl => return some decl)
+    let decls ← declsArr.filterMapM Decl.fromJson
     return some <| Decl.mutualBlock decls.toList
   | s => throw s!"Unexpected declaration type: {s}"
 
